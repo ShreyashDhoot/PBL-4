@@ -3,6 +3,7 @@
 
 # Keep this file tracked
 !.gitignore
+!inference.py
 
 # Keep the output folder itself
 !output/
