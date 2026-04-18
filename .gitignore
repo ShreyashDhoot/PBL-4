@@ -4,7 +4,7 @@
 # Keep this file tracked
 !.gitignore
 !inference.py
-
+!train_bccd_ssdlite_detection.py
 # Keep the output folder itself
 !output/
 
