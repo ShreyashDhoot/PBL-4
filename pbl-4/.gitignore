@@ -1,0 +1,32 @@
+# Ignore everything in this repository by default
+*
+
+# Keep this file tracked
+!.gitignore
+!inference.py
+!train_bccd_ssdlite_detection.py
+# Keep the output folder itself
+!output/
+
+# Ignore everything inside output by default
+output/*
+
+# Keep model/checkpoint artifacts
+!output/*.pth
+!output/*.onnx
+
+# Keep tabular training outputs
+!output/*.csv
+
+# Keep generated charts/visualizations and metadata
+!output/*.png
+!output/*.jpg
+!output/*.jpeg
+!output/*.meta.json
+
+# Keep camera captures and annotated inference images
+!output/captures/
+output/captures/*
+!output/captures/*.jpg
+!output/captures/*.jpeg
+!output/captures/*.png

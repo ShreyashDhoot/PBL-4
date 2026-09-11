@@ -1,0 +1,3 @@
+model,n_images,mean_latency_ms,median_latency_ms,p95_latency_ms,std_latency_ms,peak_ram_mb,power_watts,on_target_hardware_raspberry_pi4
+SSDLite (detector),30,52.551153332266644,52.60364999412559,60.71983499423368,4.784037619089065,408.8828125,,False
+EfficientNet-B0 (classifier),30,31.448540000322584,31.89534999546595,37.65174499712884,4.305075175454642,440.35546875,,False

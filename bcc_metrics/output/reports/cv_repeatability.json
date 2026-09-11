@@ -1,0 +1,61 @@
+{
+  "protocol_a": {
+    "label": "Field-to-field CV% (specimen-level repeatability) -- directly comparable to manual/machine CV% in the comparison table",
+    "data_source_note": "PROXY (no BCC_FIELD_IMAGES_DIR supplied): using the first 15 images from the 72-image biomed set as a stand-in for repeated fields of one slide. These are NOT verified to be the same physical slide/specimen -- replace with a real 10-20-field capture of one slide before reporting this as the paper's Protocol A number.",
+    "results": [
+      {
+        "cell_type": "RBC",
+        "n_fields": 15,
+        "mean_count": 12.133333333333333,
+        "sd_count": 2.722044049886741,
+        "cv_percent": 22.43442898258303,
+        "cv_bootstrap_ci_lower": 15.107775016666935,
+        "cv_bootstrap_ci_upper": 27.99171682937609,
+        "is_proxy_data": true
+      },
+      {
+        "cell_type": "WBC",
+        "n_fields": 15,
+        "mean_count": 1.1333333333333333,
+        "sd_count": 0.3518657752744984,
+        "cv_percent": 31.04698017127927,
+        "cv_bootstrap_ci_lower": 0.0,
+        "cv_bootstrap_ci_upper": 36.59625273557,
+        "is_proxy_data": true
+      },
+      {
+        "cell_type": "Platelets",
+        "n_fields": 15,
+        "mean_count": 0.0,
+        "sd_count": 0.0,
+        "cv_percent": NaN,
+        "cv_bootstrap_ci_lower": NaN,
+        "cv_bootstrap_ci_upper": NaN,
+        "is_proxy_data": true
+      }
+    ]
+  },
+  "protocol_b": {
+    "label": "Algorithmic/model reproducibility under simulated re-imaging -- NOT the same quantity as Protocol A or the machine CV% numbers",
+    "aggregate_results": [
+      {
+        "cell_type": "Platelets",
+        "mean_cv_percent": NaN,
+        "median_cv_percent": NaN,
+        "n_images": 5
+      },
+      {
+        "cell_type": "RBC",
+        "mean_cv_percent": 12.099000735995022,
+        "median_cv_percent": 13.037486292590419,
+        "n_images": 5
+      },
+      {
+        "cell_type": "WBC",
+        "mean_cv_percent": 0.0,
+        "median_cv_percent": 0.0,
+        "n_images": 5
+      }
+    ]
+  }
+}

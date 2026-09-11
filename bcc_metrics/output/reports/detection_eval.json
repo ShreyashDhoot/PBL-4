@@ -1,0 +1,46 @@
+{
+  "bccd_test": {
+    "dataset": "bccd_test",
+    "n_images": 56,
+    "score_threshold": 0.35,
+    "iou_threshold": 0.5,
+    "accuracy": 0.6605316973415133,
+    "accuracy_wilson_ci_lower": 0.6302777217525884,
+    "accuracy_wilson_ci_upper": 0.6895295110537656,
+    "micro_precision": 0.7916666666666666,
+    "micro_recall": 0.7995049504950495,
+    "micro_f1": 0.7955665024630542,
+    "macro_precision": 0.5865982479254791,
+    "macro_recall": 0.612923212724603,
+    "macro_f1": 0.5991244224742335,
+    "mAP_0.5": 0.6174394415560994,
+    "mAP_0.5:0.95": 0.4011429365746201,
+    "AP_0.5:0.95_RBC": 0.5386984195149995,
+    "AP_0.5:0.95_WBC": 0.6647136299186571,
+    "AP_0.5:0.95_Platelets": 1.6760290203736383e-05
+  },
+  "72set_ood": {
+    "dataset": "72set_ood",
+    "n_images": 72,
+    "score_threshold": 0.35,
+    "iou_threshold": 0.5,
+    "accuracy": 0.3365300784655623,
+    "accuracy_wilson_ci_lower": 0.3174812738563948,
+    "accuracy_wilson_ci_upper": 0.35612545078468755,
+    "micro_precision": 0.7666335650446872,
+    "micro_recall": 0.37493929091792133,
+    "micro_f1": 0.5035877364644489,
+    "macro_precision": 0.5785608759885287,
+    "macro_recall": 0.3753730248962577,
+    "macro_f1": 0.45288893651984424,
+    "mAP_0.5": 0.3888070566656474,
+    "mAP_0.5:0.95": 0.1428479568282942,
+    "AP_0.5:0.95_RBC": 0.1096923902171274,
+    "AP_0.5:0.95_WBC": 0.3188477446007809,
+    "AP_0.5:0.95_Platelets": 3.735666974395558e-06
+  },
+  "generalization_gap": {
+    "accuracy_drop": 0.32400161887595097,
+    "mAP_0.5_drop": 0.228632384890452
+  }
+}

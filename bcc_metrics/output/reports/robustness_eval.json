@@ -1,0 +1,74 @@
+[
+  {
+    "corruption_type": "blur_obscuration",
+    "severity": "none",
+    "accuracy": 0.6605316973415133,
+    "precision_micro": 0.7916666666666666,
+    "recall_micro": 0.7995049504950495,
+    "f1_micro": 0.7955665024630542,
+    "mAP_0.5": 0.6174394415560994
+  },
+  {
+    "corruption_type": "blur_obscuration",
+    "severity": "mild",
+    "accuracy": 0.6601239669421488,
+    "precision_micro": 0.799749687108886,
+    "recall_micro": 0.7908415841584159,
+    "f1_micro": 0.7952706907280648,
+    "mAP_0.5": 0.6165833793669598
+  },
+  {
+    "corruption_type": "blur_obscuration",
+    "severity": "moderate",
+    "accuracy": 0.5588571428571428,
+    "precision_micro": 0.8794964028776978,
+    "recall_micro": 0.6051980198019802,
+    "f1_micro": 0.7170087976539589,
+    "mAP_0.5": 0.6058391825799504
+  },
+  {
+    "corruption_type": "blur_obscuration",
+    "severity": "severe",
+    "accuracy": 0.0024752475247524753,
+    "precision_micro": 1.0,
+    "recall_micro": 0.0024752475247524753,
+    "f1_micro": 0.0049382716049382715,
+    "mAP_0.5": 0.42841062389320334
+  },
+  {
+    "corruption_type": "stain_color_shift",
+    "severity": "none",
+    "accuracy": 0.6605316973415133,
+    "precision_micro": 0.7916666666666666,
+    "recall_micro": 0.7995049504950495,
+    "f1_micro": 0.7955665024630542,
+    "mAP_0.5": 0.6174394415560994
+  },
+  {
+    "corruption_type": "stain_color_shift",
+    "severity": "mild",
+    "accuracy": 0.6537313432835821,
+    "precision_micro": 0.7693208430913349,
+    "recall_micro": 0.8131188118811881,
+    "f1_micro": 0.7906137184115524,
+    "mAP_0.5": 0.6150152432698889
+  },
+  {
+    "corruption_type": "stain_color_shift",
+    "severity": "moderate",
+    "accuracy": 0.6175580221997982,
+    "precision_micro": 0.769811320754717,
+    "recall_micro": 0.7574257425742574,
+    "f1_micro": 0.7635683094198379,
+    "mAP_0.5": 0.6028272422431524
+  },
+  {
+    "corruption_type": "stain_color_shift",
+    "severity": "severe",
+    "accuracy": 0.5176470588235295,
+    "precision_micro": 0.7921440261865794,
+    "recall_micro": 0.599009900990099,
+    "f1_micro": 0.6821705426356589,
+    "mAP_0.5": 0.5440292742363081
+  }
+]

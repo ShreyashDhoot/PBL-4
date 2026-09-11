@@ -1,0 +1,4 @@
+quantization_level,on_target_hardware_raspberry_pi4,accuracy,precision_micro,recall_micro,f1_micro,mAP_0.5,mean_cv_percent_protocol_b,mean_latency_ms,std_latency_ms,p95_latency_ms,model_size_mb,n_parameters,error
+fp32,False,0.6559888579387186,0.78369384359401,0.8010204081632653,0.7922624053826746,0.6130853519052509,4.75796669124972,47.34127499978058,2.7626238880214036,51.21282499167137,14.428878784179688,3742160.0,
+fp16,,,,,,,,,,,,,"operator (), C:\actions-runner\_work\vision\vision\pytorch\vision\torchvision\csrc\ops\cpu\nms_kernel.cpp:128, ""nms_kernel"" not implemented for 'Half'"
+dynamic_int8,False,0.6559888579387186,0.78369384359401,0.8010204081632653,0.7922624053826746,0.6130853519052509,4.75796669124972,43.640420005249325,4.140122991659683,49.318545004643966,14.428878784179688,3742160.0,

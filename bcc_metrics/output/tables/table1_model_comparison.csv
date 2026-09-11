@@ -1,0 +1,5 @@
+Model,Accuracy,Latency (ms),Memory (MB),Note
+SSDLite (MobileNetV3-Large backbone),0.6605316973415133,52.55115333226664,14.428878784179688,Object detector; accuracy = box-level match rate on BCCD test split
+EfficientNet-B0 (multi-label presence classifier),,31.448540000322584,440.35546875,"Image-level multi-label task, not per-box detection -- see train_efficientnet_bccd.py"
+MobileNetV2,,,,"No trained MobileNetV2 checkpoint shipped in pbl-4.zip; the paper's methodology mentions this architecture but no matching train_*.py/checkpoint exists in the repo. Train and export it the same way as train_efficientnet_bccd.py before reporting, or remove it from the methodology text to match what was actually run."
+YOLO variant (e.g. YOLOv8n),,,,"Notes next-step item #6: literature review and methodology mention YOLO as an alternative, but no YOLO training script/checkpoint ships in this repo. Either add a small ablation (e.g. ultralytics YOLOv8n on the same BCCD VOC-to-YOLO-converted labels) or narrow the methodology text to match SSDLite/EfficientNet only."

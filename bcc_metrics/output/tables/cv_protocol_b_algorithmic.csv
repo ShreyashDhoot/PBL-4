@@ -1,0 +1,16 @@
+image_id,cell_type,n_repeats,perturbation_severity,mean_count,sd_count,cv_percent
+BloodImage_00336,RBC,15,mild,13.2,0.8618916073713346,6.5294818740252625
+BloodImage_00336,WBC,15,mild,1.0,0.0,0.0
+BloodImage_00336,Platelets,15,mild,0.0,0.0,
+BloodImage_00082,RBC,15,mild,13.0,1.9639610121239315,15.107392400953318
+BloodImage_00082,WBC,15,mild,1.0,0.0,0.0
+BloodImage_00082,Platelets,15,mild,0.0,0.0,
+BloodImage_00335,RBC,15,mild,13.866666666666667,1.6417180315870612,11.839312727791306
+BloodImage_00335,WBC,15,mild,1.0,0.0,0.0
+BloodImage_00335,Platelets,15,mild,0.0,0.0,
+BloodImage_00240,RBC,15,mild,10.4,1.4540583599999397,13.981330384614804
+BloodImage_00240,WBC,15,mild,1.0,0.0,0.0
+BloodImage_00240,Platelets,15,mild,0.0,0.0,
+BloodImage_00033,RBC,15,mild,8.6,1.121223821162776,13.037486292590419
+BloodImage_00033,WBC,15,mild,1.0,0.0,0.0
+BloodImage_00033,Platelets,15,mild,0.0,0.0,

@@ -1,0 +1,20 @@
+# Core scientific stack
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+matplotlib>=3.7
+
+# Deep learning (needed for every script that runs the trained models:
+# detection_eval, cv_repeatability, agreement_stats, calibration_eval,
+# robustness_eval, quantization_bench, edge_performance)
+torch>=2.0
+torchvision>=0.15
+
+# Optional, improves output but not required (code falls back gracefully):
+pingouin>=0.5      # cross-checks the manual ICC(2,1) implementation
+psutil>=5.9         # peak RAM measurement in edge_performance.py
+tabulate>=0.9        # required by pandas.DataFrame.to_markdown() in literature_comparison_table.py
+
+# Only needed if you re-run the original training scripts from pbl-4/
+# (train_bccd_ssdlite_detection.py / train_efficientnet_bccd.py):
+# plotly, tqdm, kaleido (for plotly static image export)

@@ -1,0 +1,36 @@
+[
+  {
+    "quantization_level": "fp32",
+    "on_target_hardware_raspberry_pi4": false,
+    "accuracy": 0.6559888579387186,
+    "precision_micro": 0.78369384359401,
+    "recall_micro": 0.8010204081632653,
+    "f1_micro": 0.7922624053826746,
+    "mAP_0.5": 0.6130853519052509,
+    "mean_cv_percent_protocol_b": 4.75796669124972,
+    "mean_latency_ms": 47.34127499978058,
+    "std_latency_ms": 2.7626238880214036,
+    "p95_latency_ms": 51.21282499167137,
+    "model_size_mb": 14.428878784179688,
+    "n_parameters": 3742160
+  },
+  {
+    "quantization_level": "fp16",
+    "error": "operator (), C:\\actions-runner\\_work\\vision\\vision\\pytorch\\vision\\torchvision\\csrc\\ops\\cpu\\nms_kernel.cpp:128, \"nms_kernel\" not implemented for 'Half'"
+  },
+  {
+    "quantization_level": "dynamic_int8",
+    "on_target_hardware_raspberry_pi4": false,
+    "accuracy": 0.6559888579387186,
+    "precision_micro": 0.78369384359401,
+    "recall_micro": 0.8010204081632653,
+    "f1_micro": 0.7922624053826746,
+    "mAP_0.5": 0.6130853519052509,
+    "mean_cv_percent_protocol_b": 4.75796669124972,
+    "mean_latency_ms": 43.640420005249325,
+    "std_latency_ms": 4.140122991659683,
+    "p95_latency_ms": 49.318545004643966,
+    "model_size_mb": 14.428878784179688,
+    "n_parameters": 3742160
+  }
+]

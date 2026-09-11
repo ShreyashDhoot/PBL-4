@@ -1,0 +1,4 @@
+cell_type,mean_cv_percent,median_cv_percent,n_images
+Platelets,,,5
+RBC,12.099000735995022,13.037486292590419,5
+WBC,0.0,0.0,5
