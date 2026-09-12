@@ -31,7 +31,7 @@ from PIL import Image
 from common import CELL_TYPES, TABLES_DIR, FIGURES_DIR, REPORTS_DIR, log
 from voc_data import build_bccd_records, split_bccd_records
 from detection_metrics import greedy_match
-from models_io import load_ssdlite_detector
+from models_io import load_detector
 from stats_toolkit import expected_calibration_error
 
 LOW_SCORE_INCLUSION = 0.05  # include low-confidence detections too, so bins near 0 are populated
@@ -81,30 +81,53 @@ def plot_reliability_diagram(bin_rows, ece, out_path):
 
 
 def main():
-    detector = load_ssdlite_detector()
+    from common import list_available_models
+
     bccd = build_bccd_records()
     _, _, test = split_bccd_records(bccd)
 
-    log(f"Collecting confidences/correctness on {len(test)} BCCD test images ...")
-    conf, correct = collect_confidence_correctness(detector, test)
+    models = list_available_models()
+    if not models:
+        log("No trained models found. Train at least one model first.", tag="WARN")
+        return
 
-    ece, bin_rows = expected_calibration_error(conf, correct, n_bins=10)
-    pd.DataFrame(bin_rows).to_csv(TABLES_DIR / "calibration_bins.csv", index=False)
-    plot_reliability_diagram(bin_rows, ece, FIGURES_DIR / "reliability_diagram.png")
+    full_report = {}
+    combined_rows = []
+    for model_key, display_name in models:
+        log(f"=== Calibration: {display_name} ({model_key}) ===")
+        try:
+            detector = load_detector(model_key)
+        except Exception as e:
+            log(f"Could not load '{model_key}': {e} -- skipping.", tag="WARN")
+            continue
 
-    report = {
-        "ece": ece,
-        "n_predictions": len(conf),
-        "n_bins": 10,
-        "score_inclusion_threshold": LOW_SCORE_INCLUSION,
-        "iou_match_threshold": IOU_THR,
-        "bin_table": bin_rows,
-    }
+        try:
+            log(f"Collecting confidences/correctness on {len(test)} BCCD test images ...")
+            conf, correct = collect_confidence_correctness(detector, test)
+            ece, bin_rows = expected_calibration_error(conf, correct, n_bins=10)
+        except Exception as e:
+            log(f"Calibration failed for '{model_key}': {e} -- skipping.", tag="WARN")
+            continue
+
+        bin_df = pd.DataFrame(bin_rows)
+        bin_df["model"] = model_key
+        bin_df.to_csv(TABLES_DIR / f"calibration_bins_{model_key}.csv", index=False)
+        plot_reliability_diagram(bin_rows, ece, FIGURES_DIR / f"reliability_diagram_{model_key}.png")
+        combined_rows.append({"model": model_key, "model_display_name": display_name,
+                               "ece": ece, "n_predictions": len(conf)})
+        full_report[model_key] = {"display_name": display_name, "ece": ece, "n_predictions": len(conf),
+                                   "bin_table": bin_rows}
+        log(f"{display_name}: ECE = {ece:.4f} over {len(conf)} detections.")
+
+    if not combined_rows:
+        log("No model evaluated successfully.", tag="WARN")
+        return
+
+    pd.DataFrame(combined_rows).sort_values("ece").to_csv(TABLES_DIR / "calibration_ece_all_models.csv", index=False)
     with open(REPORTS_DIR / "calibration_eval.json", "w") as f:
-        json.dump(report, f, indent=2, default=float)
+        json.dump(full_report, f, indent=2, default=float)
 
-    log(f"Expected Calibration Error (ECE) = {ece:.4f} over {len(conf)} detections.")
-    log("Calibration evaluation complete. See output/tables and output/figures.")
+    log("Calibration evaluation complete for all available models. See output/tables and output/figures.")
 
 
 if __name__ == "__main__":

@@ -54,7 +54,7 @@ from detection_metrics import (
     wilson_score_interval,
     compute_map,
 )
-from models_io import load_ssdlite_detector
+from models_io import load_detector
 
 
 def run_predictions(detector, records, score_thr=0.0):
@@ -160,47 +160,86 @@ def plot_generalization_gap(summary_bccd, summary_72, out_path):
 
 
 def main():
-    detector = load_ssdlite_detector()
+    from common import list_available_models
 
     bccd = build_bccd_records()
     _, _, bccd_test = split_bccd_records(bccd)
     seventytwo = build_72_records()
 
-    per_class_bccd, cm_bccd, summary_bccd, map_bccd = evaluate_split("bccd_test", detector, bccd_test)
-    per_class_72, cm_72, summary_72, map_72 = evaluate_split("72set_ood", detector, seventytwo)
+    models = list_available_models()
+    if not models:
+        log("No trained models found (checked MODEL_REGISTRY in common.py). Train at least one "
+            "model first, e.g. `python pbl-4/train_bccd_ssdlite_detection.py`.", tag="WARN")
+        return
 
+    all_summaries = []
+    full_report = {}
     labels_with_bg = CELL_TYPES + ["background/missed"]
-    plot_confusion_matrix(cm_bccd, labels_with_bg, "Confusion matrix — BCCD test split", FIGURES_DIR / "confusion_matrix_bccd_test.png")
-    plot_confusion_matrix(cm_72, labels_with_bg, "Confusion matrix — 72-image biomed set", FIGURES_DIR / "confusion_matrix_72set.png")
-    plot_generalization_gap(summary_bccd, summary_72, FIGURES_DIR / "generalization_gap.png")
 
-    per_class_bccd.to_csv(TABLES_DIR / "detection_metrics_bccd_test.csv", index=False)
-    per_class_72.to_csv(TABLES_DIR / "detection_metrics_72set.csv", index=False)
-    pd.DataFrame(cm_bccd, index=labels_with_bg, columns=labels_with_bg).to_csv(TABLES_DIR / "confusion_matrix_bccd_test.csv")
-    pd.DataFrame(cm_72, index=labels_with_bg, columns=labels_with_bg).to_csv(TABLES_DIR / "confusion_matrix_72set.csv")
+    for model_key, display_name in models:
+        log(f"=== Evaluating model: {display_name} ({model_key}) ===")
+        try:
+            detector = load_detector(model_key)
+        except Exception as e:
+            log(f"Could not load '{model_key}': {e} -- skipping.", tag="WARN")
+            continue
 
-    map_df = pd.DataFrame([summary_bccd, summary_72])
+        try:
+            per_class_bccd, cm_bccd, summary_bccd, _ = evaluate_split(f"{model_key}__bccd_test", detector, bccd_test)
+            per_class_72, cm_72, summary_72, _ = evaluate_split(f"{model_key}__72set_ood", detector, seventytwo)
+        except Exception as e:
+            log(f"Evaluation failed for '{model_key}': {e} -- skipping.", tag="WARN")
+            continue
+
+        plot_confusion_matrix(cm_bccd, labels_with_bg, f"Confusion matrix — BCCD test split — {display_name}",
+                               FIGURES_DIR / f"confusion_matrix_bccd_test_{model_key}.png")
+        plot_confusion_matrix(cm_72, labels_with_bg, f"Confusion matrix — 72-image biomed set — {display_name}",
+                               FIGURES_DIR / f"confusion_matrix_72set_{model_key}.png")
+        plot_generalization_gap(summary_bccd, summary_72, FIGURES_DIR / f"generalization_gap_{model_key}.png")
+
+        per_class_bccd.to_csv(TABLES_DIR / f"detection_metrics_bccd_test_{model_key}.csv", index=False)
+        per_class_72.to_csv(TABLES_DIR / f"detection_metrics_72set_{model_key}.csv", index=False)
+        pd.DataFrame(cm_bccd, index=labels_with_bg, columns=labels_with_bg).to_csv(TABLES_DIR / f"confusion_matrix_bccd_test_{model_key}.csv")
+        pd.DataFrame(cm_72, index=labels_with_bg, columns=labels_with_bg).to_csv(TABLES_DIR / f"confusion_matrix_72set_{model_key}.csv")
+
+        summary_bccd["model"] = summary_72["model"] = model_key
+        summary_bccd["model_display_name"] = summary_72["model_display_name"] = display_name
+        all_summaries.extend([summary_bccd, summary_72])
+
+        full_report[model_key] = {
+            "display_name": display_name,
+            "bccd_test": summary_bccd,
+            "72set_ood": summary_72,
+            "generalization_gap": {
+                "accuracy_drop": summary_bccd["accuracy"] - summary_72["accuracy"],
+                "mAP_0.5_drop": (summary_bccd["mAP_0.5"] or 0) - (summary_72["mAP_0.5"] or 0),
+            },
+        }
+        log(f"{display_name}: BCCD test acc={summary_bccd['accuracy']:.3f} mAP@0.5={summary_bccd['mAP_0.5']:.3f}  |  "
+            f"72-set OOD acc={summary_72['accuracy']:.3f} mAP@0.5={summary_72['mAP_0.5']:.3f}")
+
+    if not all_summaries:
+        log("No model evaluated successfully.", tag="WARN")
+        return
+
+    # Backward-compatible single-model filenames (SSDLite, if present) PLUS
+    # the new combined cross-model comparison table every downstream script
+    # (dataset_and_model_summary.py, the paper) should actually read from.
+    map_df = pd.DataFrame(all_summaries)
     map_df.to_csv(TABLES_DIR / "map_summary.csv", index=False)
 
-    report = {
-        "bccd_test": summary_bccd,
-        "72set_ood": summary_72,
-        "generalization_gap": {
-            "accuracy_drop": summary_bccd["accuracy"] - summary_72["accuracy"],
-            "mAP_0.5_drop": (summary_bccd["mAP_0.5"] or 0) - (summary_72["mAP_0.5"] or 0),
-        },
-    }
-    with open(REPORTS_DIR / "detection_eval.json", "w") as f:
-        json.dump(report, f, indent=2, default=float)
+    bccd_only = map_df[map_df["dataset"].str.endswith("__bccd_test")].sort_values("mAP_0.5", ascending=False)
+    bccd_only.to_csv(TABLES_DIR / "table1_model_comparison_detection.csv", index=False)
 
-    log("=== Detection evaluation summary ===")
-    log(f"BCCD test:  acc={summary_bccd['accuracy']:.3f} "
-        f"[{summary_bccd['accuracy_wilson_ci_lower']:.3f}, {summary_bccd['accuracy_wilson_ci_upper']:.3f}]  "
-        f"mAP@0.5={summary_bccd['mAP_0.5']:.3f}")
-    log(f"72-set OOD: acc={summary_72['accuracy']:.3f} "
-        f"[{summary_72['accuracy_wilson_ci_lower']:.3f}, {summary_72['accuracy_wilson_ci_upper']:.3f}]  "
-        f"mAP@0.5={summary_72['mAP_0.5']:.3f}")
-    log("Detection evaluation complete. See output/tables and output/figures.")
+    with open(REPORTS_DIR / "detection_eval.json", "w") as f:
+        json.dump(full_report, f, indent=2, default=float)
+
+    log("=== Cross-model detection summary (BCCD test split, sorted by mAP@0.5) ===")
+    for _, row in bccd_only.iterrows():
+        log(f"  {row['model_display_name']:45s} acc={row['accuracy']:.3f}  mAP@0.5={row['mAP_0.5']:.3f}  "
+            f"mAP@0.5:0.95={row['mAP_0.5:0.95']:.3f}")
+    log("Detection evaluation complete. See output/tables and output/figures "
+        "(per-model files suffixed _<model_key>, plus table1_model_comparison_detection.csv).")
 
 
 if __name__ == "__main__":

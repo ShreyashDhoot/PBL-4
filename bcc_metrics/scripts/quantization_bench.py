@@ -47,7 +47,7 @@ from PIL import Image
 from common import CELL_TYPES, TABLES_DIR, FIGURES_DIR, REPORTS_DIR, RANDOM_SEED, log
 from voc_data import build_bccd_records, split_bccd_records
 from detection_metrics import accumulate_confusion, prf1_from_confusion, compute_map
-from models_io import load_ssdlite_detector, perturb_image
+from models_io import load_detector, perturb_image
 from stats_toolkit import coefficient_of_variation
 
 LEVELS = ["fp32", "fp16", "dynamic_int8"]
@@ -57,12 +57,12 @@ N_CV_IMAGES = 5
 N_CV_REPEATS = 10
 
 
-def eval_level(mode, test_records):
+def eval_level(model_key, mode, test_records):
     on_pi = os.environ.get("BCC_ON_RASPBERRY_PI", "0") == "1"
     device = "cpu"  # dynamic INT8 requires CPU; fp32/fp16 forced to CPU too for a fair apples-to-apples edge comparison
-    log(f"--- Quantization level: {mode} (device={device}, on_pi={on_pi}) ---")
+    log(f"--- Quantization level: {mode} (model={model_key}, device={device}, on_pi={on_pi}) ---")
 
-    detector = load_ssdlite_detector(device=device, quantize_mode=mode)
+    detector = load_detector(model_key, device=device, quantize_mode=mode)
 
     # Accuracy / P / R / F1 / mAP on BCCD test split
     predictions, ground_truths = [], []
@@ -109,7 +109,7 @@ def eval_level(mode, test_records):
         "std_latency_ms": float(np.std(latencies)),
         "p95_latency_ms": float(np.percentile(latencies, 95)),
         "model_size_mb": detector.state_dict_size_mb(),
-        "n_parameters": detector.num_parameters(),
+        "n_parameters": detector.num_parameters(),  # None for ONNX-based models (not derivable from the graph alone)
     }
     return result
 
@@ -138,30 +138,42 @@ def plot_tradeoff(df, out_path):
 
 
 def main():
+    from common import list_available_models
+
     bccd = build_bccd_records()
     _, _, test = split_bccd_records(bccd)
     # Cap evaluation set for speed on CPU-only quantization runs; raise if you have time/GPU.
     test = test[:min(40, len(test))]
 
-    results = []
-    for mode in LEVELS:
-        try:
-            results.append(eval_level(mode, test))
-        except Exception as e:
-            log(f"Quantization level '{mode}' failed: {e}", tag="WARN")
-            results.append({"quantization_level": mode, "error": str(e)})
+    models = list_available_models()
+    if not models:
+        log("No trained models found. Train at least one model first.", tag="WARN")
+        return
 
-    df = pd.DataFrame(results)
+    all_results = []
+    for model_key, display_name in models:
+        log(f"=== Quantization benchmark: {display_name} ({model_key}) ===")
+        for mode in LEVELS:
+            try:
+                r = eval_level(model_key, mode, test)
+            except Exception as e:
+                log(f"Quantization level '{mode}' failed for '{model_key}': {e}", tag="WARN")
+                r = {"quantization_level": mode, "error": str(e)}
+            r["model"] = model_key
+            r["model_display_name"] = display_name
+            all_results.append(r)
+
+        ok_rows = [r for r in all_results if r["model"] == model_key and "error" not in r]
+        if ok_rows:
+            plot_tradeoff(pd.DataFrame(ok_rows), FIGURES_DIR / f"quantization_tradeoff_{model_key}.png")
+
+    df = pd.DataFrame(all_results)
     df.to_csv(TABLES_DIR / "quantization_tradeoff.csv", index=False)
 
-    ok_df = df[~df.get("error").notna()] if "error" in df.columns else df
-    if len(ok_df) > 0:
-        plot_tradeoff(ok_df, FIGURES_DIR / "quantization_tradeoff.png")
-
     with open(REPORTS_DIR / "quantization_bench.json", "w") as f:
-        json.dump(results, f, indent=2, default=float)
+        json.dump(all_results, f, indent=2, default=float)
 
-    log("Quantization benchmark complete. See output/tables/quantization_tradeoff.csv")
+    log("Quantization benchmark complete for all available models. See output/tables/quantization_tradeoff.csv")
     log("NOTE: for the paper, re-run with BCC_ON_RASPBERRY_PI=1 physically on the "
         "Raspberry Pi 4 to get target-hardware latency numbers (notes: 'run the "
         "timing/accuracy numbers on the actual Raspberry Pi, not just a dev machine').")

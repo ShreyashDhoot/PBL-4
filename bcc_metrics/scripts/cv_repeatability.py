@@ -45,7 +45,7 @@ from PIL import Image
 
 from common import CELL_TYPES, TABLES_DIR, FIGURES_DIR, REPORTS_DIR, RANDOM_SEED, log
 from voc_data import build_bccd_records, split_bccd_records, build_72_records
-from models_io import load_ssdlite_detector, perturb_image
+from models_io import load_detector, perturb_image
 from stats_toolkit import coefficient_of_variation, bootstrap_ci
 
 N_REPEATS = 15  # within the notes' recommended 10-20 range
@@ -173,37 +173,63 @@ def plot_cv_bars(df, value_col, title, out_path, group_col="cell_type"):
 
 
 def main():
-    detector = load_ssdlite_detector()
+    from common import list_available_models
 
-    log("Running Protocol A (field-to-field CV%) ...")
-    df_a, source_desc_a, _ = protocol_a_field_to_field(detector)
-    df_a.to_csv(TABLES_DIR / "cv_protocol_a_field_to_field.csv", index=False)
-    plot_cv_bars(df_a, "cv_percent", "Protocol A: Field-to-field CV% (specimen-level repeatability)",
-                 FIGURES_DIR / "cv_protocol_a_bars.png")
+    models = list_available_models()
+    if not models:
+        log("No trained models found. Train at least one model first.", tag="WARN")
+        return
 
-    log("Running Protocol B (algorithmic reproducibility CV%) ...")
-    df_b, agg_b, _ = protocol_b_algorithmic(detector)
-    df_b.to_csv(TABLES_DIR / "cv_protocol_b_algorithmic.csv", index=False)
-    agg_b.to_csv(TABLES_DIR / "cv_protocol_b_algorithmic_summary.csv", index=False)
-    plot_cv_bars(agg_b.rename(columns={"mean_cv_percent": "cv_percent"}), "cv_percent",
-                 "Protocol B: Algorithmic reproducibility CV% (simulated re-capture)",
-                 FIGURES_DIR / "cv_protocol_b_bars.png")
+    full_report = {}
+    combined_a, combined_b_agg = [], []
 
-    report = {
-        "protocol_a": {
-            "label": "Field-to-field CV% (specimen-level repeatability) -- directly comparable to manual/machine CV% in the comparison table",
-            "data_source_note": source_desc_a,
-            "results": df_a.to_dict(orient="records"),
-        },
-        "protocol_b": {
-            "label": "Algorithmic/model reproducibility under simulated re-imaging -- NOT the same quantity as Protocol A or the machine CV% numbers",
-            "aggregate_results": agg_b.to_dict(orient="records"),
-        },
-    }
+    for model_key, display_name in models:
+        log(f"=== CV% repeatability: {display_name} ({model_key}) ===")
+        try:
+            detector = load_detector(model_key)
+        except Exception as e:
+            log(f"Could not load '{model_key}': {e} -- skipping.", tag="WARN")
+            continue
+
+        try:
+            log("Running Protocol A (field-to-field CV%) ...")
+            df_a, source_desc_a, _ = protocol_a_field_to_field(detector)
+            df_a["model"] = model_key
+            df_a.to_csv(TABLES_DIR / f"cv_protocol_a_field_to_field_{model_key}.csv", index=False)
+            plot_cv_bars(df_a, "cv_percent", f"Protocol A: Field-to-field CV% — {display_name}",
+                         FIGURES_DIR / f"cv_protocol_a_bars_{model_key}.png")
+
+            log("Running Protocol B (algorithmic reproducibility CV%) ...")
+            df_b, agg_b, _ = protocol_b_algorithmic(detector)
+            df_b["model"] = model_key
+            agg_b["model"] = model_key
+            df_b.to_csv(TABLES_DIR / f"cv_protocol_b_algorithmic_{model_key}.csv", index=False)
+            agg_b.to_csv(TABLES_DIR / f"cv_protocol_b_algorithmic_summary_{model_key}.csv", index=False)
+            plot_cv_bars(agg_b.rename(columns={"mean_cv_percent": "cv_percent"}), "cv_percent",
+                         f"Protocol B: Algorithmic reproducibility CV% — {display_name}",
+                         FIGURES_DIR / f"cv_protocol_b_bars_{model_key}.png")
+        except Exception as e:
+            log(f"CV% repeatability failed for '{model_key}': {e} -- skipping.", tag="WARN")
+            continue
+
+        combined_a.append(df_a)
+        combined_b_agg.append(agg_b)
+        full_report[model_key] = {
+            "display_name": display_name,
+            "protocol_a": {"data_source_note": source_desc_a, "results": df_a.to_dict(orient="records")},
+            "protocol_b": {"aggregate_results": agg_b.to_dict(orient="records")},
+        }
+
+    if combined_a:
+        pd.concat(combined_a, ignore_index=True).to_csv(TABLES_DIR / "cv_protocol_a_field_to_field.csv", index=False)
+    if combined_b_agg:
+        pd.concat(combined_b_agg, ignore_index=True).to_csv(TABLES_DIR / "cv_protocol_b_algorithmic_summary.csv", index=False)
+
     with open(REPORTS_DIR / "cv_repeatability.json", "w") as f:
-        json.dump(report, f, indent=2, default=float)
+        json.dump(full_report, f, indent=2, default=float)
 
-    log("CV% repeatability analysis complete. See output/tables and output/figures.")
+    log("CV% repeatability analysis complete for all available models. "
+        "See output/tables and output/figures (per-model files suffixed _<model_key>).")
 
 
 if __name__ == "__main__":

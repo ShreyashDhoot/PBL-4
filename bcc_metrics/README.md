@@ -108,14 +108,57 @@ python run_all.py --skip robustness quantization
   the Pi). Without it, `edge_performance.py` reports `power_watts: null`
   rather than fabricating a number.
 
+## Multi-model ablation (YOLOv8n-P2, YOLO11n-P2, RT-DETR, NanoDet-Plus-style,
+## EfficientDet-Lite0, RTMDet-tiny, SSDLite v2)
+
+`pbl-4/` now ships one `train_bccd_<model>_detection.py` per model, all
+trained/validated/tested on the IDENTICAL BCCD 70/15/15 split (seed=42) via
+`pbl-4/bccd_data_utils.py`, plus the original baseline SSDLite. Train
+everything with:
+
+```
+cd pbl-4
+python train_all_models.py               # every model
+python train_all_models.py --quick        # 2-epoch smoke test of the whole pipeline
+python train_all_models.py --only yolov8n nanodet_plus
+```
+
+Every model also gets the five "small-object" upgrades applied to the
+original SSDLite baseline in `train_bccd_ssdlite_v2_detection.py` (lower
+anchor min-scale / an added P2 head, 512px input, many epochs with a
+cosine LR schedule, focal-loss classification, and mosaic + platelet
+copy-paste augmentation) -- see that script's docstring for the exact
+per-model mapping (anchor-based vs. anchor-free models implement the "make
+anchors/heads see 15-30px objects" request differently).
+
+Every `train_bccd_*.py` script also exports ONNX (+ a `.meta.json`
+sidecar) and writes a standardized `run_report_<model>.{json,md}` under
+`pbl-4/output/<model>/` -- hyperparameters, dataset stats, timing, and
+metrics in one place, meant to be handed directly to whoever (human or
+LLM) writes the paper's Methods/Results section for that model, without
+re-deriving anything from raw logs.
+
+Once at least one model is trained, `python run_all.py` (no flags) picks
+up every trained model automatically via `MODEL_REGISTRY` in
+`scripts/common.py` and runs every evaluation step (detection, CV%,
+agreement, calibration, robustness, quantization, edge performance) once
+per model, writing per-model files suffixed `_<model_key>` plus a combined
+cross-model comparison table per step
+(`table1_model_comparison_detection.csv` is the headline one). Pass
+`--include-training` to `run_all.py` to train everything first in the same
+command.
+
 ## Known, explicitly-flagged gaps (not silently papered over)
 
-- **MobileNetV2 and YOLO** appear in the paper's methodology/literature
-  review but no trained checkpoint or training script for either ships in
-  `pbl-4.zip`. `dataset_and_model_summary.py` writes `NaN` with a note
-  explaining this in `table1_model_comparison.csv`, and tells you exactly
-  what to add (train and export the same way `train_efficientnet_bccd.py`
-  does) or how to narrow the paper's text to match what was actually run.
+- **MobileNetV2** appears in the paper's methodology/literature review but
+  no trained checkpoint or training script ships in `pbl-4.zip`.
+  `dataset_and_model_summary.py` writes `NaN` with a note explaining this
+  in `table1_model_comparison.csv` (YOLO no longer has this gap -- see the
+  multi-model ablation section above).
+- **RTMDet-tiny** trains and evaluates natively inside its own script, but
+  needs a separate `mmdeploy` ONNX export to participate in the
+  ONNX-based cross-model comparison scripts above; until then it's
+  skipped there with a clear log line (see its `run_report`).
 - **Protocol A CV%** defaults to a proxy (see above) unless you supply real
   same-slide, multi-field images.
 - **Inter-annotator kappa** is skipped (not fabricated) unless a second

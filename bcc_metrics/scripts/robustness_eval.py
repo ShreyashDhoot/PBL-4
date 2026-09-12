@@ -32,7 +32,7 @@ from PIL import Image
 from common import CELL_TYPES, TABLES_DIR, FIGURES_DIR, REPORTS_DIR, RANDOM_SEED, log
 from voc_data import build_bccd_records, split_bccd_records
 from detection_metrics import accumulate_confusion, prf1_from_confusion, compute_map
-from models_io import load_ssdlite_detector, obscure_image, simulate_stain_color_shift
+from models_io import load_detector, obscure_image, simulate_stain_color_shift
 
 SEVERITIES = ["none", "mild", "moderate", "severe"]
 SCORE_THR = 0.35
@@ -86,33 +86,60 @@ def plot_curve(df, corruption_name, out_path):
 
 
 def main():
-    detector = load_ssdlite_detector()
+    from common import list_available_models
+
     bccd = build_bccd_records()
     _, _, test = split_bccd_records(bccd)
     test = test[:min(MAX_TEST_IMAGES, len(test))]
-    log(f"Evaluating robustness on {len(test)} BCCD test images across {len(SEVERITIES)} severities.")
+
+    models = list_available_models()
+    if not models:
+        log("No trained models found. Train at least one model first.", tag="WARN")
+        return
 
     corruptions = {
         "blur_obscuration": obscure_image,
         "stain_color_shift": simulate_stain_color_shift,
     }
 
-    rows = []
-    for name, fn in corruptions.items():
-        for sev in SEVERITIES:
-            log(f"  {name} @ severity={sev}")
-            rows.append(evaluate_corruption(detector, test, fn, name, sev))
+    all_rows = []
+    full_report = {}
+    for model_key, display_name in models:
+        log(f"=== Robustness: {display_name} ({model_key}) on {len(test)} images x {len(SEVERITIES)} severities ===")
+        try:
+            detector = load_detector(model_key)
+        except Exception as e:
+            log(f"Could not load '{model_key}': {e} -- skipping.", tag="WARN")
+            continue
 
-    df = pd.DataFrame(rows)
-    df.to_csv(TABLES_DIR / "robustness_curve.csv", index=False)
+        rows = []
+        try:
+            for name, fn in corruptions.items():
+                for sev in SEVERITIES:
+                    log(f"  {name} @ severity={sev}")
+                    r = evaluate_corruption(detector, test, fn, name, sev)
+                    r["model"] = model_key
+                    r["model_display_name"] = display_name
+                    rows.append(r)
+        except Exception as e:
+            log(f"Robustness eval failed for '{model_key}': {e} -- skipping.", tag="WARN")
+            continue
 
-    for name in corruptions:
-        plot_curve(df, name, FIGURES_DIR / f"robustness_curve_{name}.png")
+        df = pd.DataFrame(rows)
+        for name in corruptions:
+            plot_curve(df, name, FIGURES_DIR / f"robustness_curve_{name}_{model_key}.png")
+        all_rows.extend(rows)
+        full_report[model_key] = {"display_name": display_name, "rows": rows}
 
+    if not all_rows:
+        log("No model evaluated successfully.", tag="WARN")
+        return
+
+    pd.DataFrame(all_rows).to_csv(TABLES_DIR / "robustness_curve.csv", index=False)
     with open(REPORTS_DIR / "robustness_eval.json", "w") as f:
-        json.dump(rows, f, indent=2, default=float)
+        json.dump(full_report, f, indent=2, default=float)
 
-    log("Robustness evaluation complete. See output/tables/robustness_curve.csv")
+    log("Robustness evaluation complete for all available models. See output/tables/robustness_curve.csv")
 
 
 if __name__ == "__main__":

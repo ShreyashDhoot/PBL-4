@@ -46,7 +46,7 @@ from PIL import Image
 
 from common import CELL_TYPES, TABLES_DIR, FIGURES_DIR, REPORTS_DIR, RANDOM_SEED, log
 from voc_data import build_paired_manual_dataset, build_72_records, per_image_cell_counts
-from models_io import load_ssdlite_detector
+from models_io import load_detector
 from stats_toolkit import (
     bland_altman,
     icc_2_1,
@@ -72,7 +72,7 @@ def build_paired_system_manual(detector):
     return pd.DataFrame(rows)
 
 
-def compute_agreement_per_celltype(df):
+def compute_agreement_per_celltype(df, model_key="ssdlite", display_name="SSDLite"):
     rows = []
     figures = []
 
@@ -138,11 +138,11 @@ def compute_agreement_per_celltype(df):
         ax.axhline(ba["loa_lower"], color="red", linestyle="--", label=f"-1.96 SD = {ba['loa_lower']:.2f}")
         ax.set_xlabel("Mean of system & manual count")
         ax.set_ylabel("System − Manual count")
-        ax.set_title(f"Bland-Altman: {c} (n={len(sys_vals)})")
+        ax.set_title(f"Bland-Altman: {c} — {display_name} (n={len(sys_vals)})")
         ax.legend(fontsize=8)
         ax.grid(alpha=0.3)
         fig.tight_layout()
-        p = FIGURES_DIR / f"bland_altman_{c}.png"
+        p = FIGURES_DIR / f"bland_altman_{c}_{model_key}.png"
         fig.savefig(p, dpi=150)
         plt.close(fig)
         figures.append(str(p))
@@ -156,11 +156,11 @@ def compute_agreement_per_celltype(df):
             ax.plot(xs, pb["slope"] * xs + pb["intercept"], color="green", label="Passing-Bablok fit")
         ax.set_xlabel("Manual (biomed student) count")
         ax.set_ylabel("System (SSDLite) count")
-        ax.set_title(f"System vs. manual count: {c}  (r={corr['pearson_r']:.3f})")
+        ax.set_title(f"System vs. manual count: {c} — {display_name}  (r={corr['pearson_r']:.3f})")
         ax.legend(fontsize=8)
         ax.grid(alpha=0.3)
         fig.tight_layout()
-        p = FIGURES_DIR / f"scatter_agreement_{c}.png"
+        p = FIGURES_DIR / f"scatter_agreement_{c}_{model_key}.png"
         fig.savefig(p, dpi=150)
         plt.close(fig)
         figures.append(str(p))
@@ -168,7 +168,7 @@ def compute_agreement_per_celltype(df):
     return pd.DataFrame(rows), figures
 
 
-def build_section5_row(agreement_df, n_pairs):
+def build_section5_row(agreement_df, n_pairs, display_name="SSDLite / EfficientNet-B0"):
     """Formats the 'Our system' row in the same style as the literature
     table in the notes' Section 5/6, ready to paste into the paper."""
     parts_r, parts_ba, parts_pb = [], [], []
@@ -182,7 +182,7 @@ def build_section5_row(agreement_df, n_pairs):
                          f"[{row['pb_intercept_ci_lower']:.3f}, {row['pb_intercept_ci_upper']:.3f}]")
 
     row_text = {
-        "System": "Our system (SSDLite / EfficientNet-B0 on Raspberry Pi)",
+        "System": f"Our system ({display_name}, on Raspberry Pi)",
         "Compared against": f"Biomed-student manual counts, {n_pairs}-image set",
         "Correlation (r)": "; ".join(parts_r),
         "Bland-Altman bias / LoA": "; ".join(parts_ba),
@@ -250,38 +250,68 @@ def inter_annotator_kappa_if_available():
 
 
 def main():
-    detector = load_ssdlite_detector()
+    from common import list_available_models
 
-    log("Building paired system-vs-manual dataset (72-image biomed set) ...")
-    paired_df = build_paired_system_manual(detector)
-    paired_df.to_csv(TABLES_DIR / "paired_system_manual_counts.csv", index=False)
-    log(f"Paired dataset: {len(paired_df)} images. "
-        f"CLSI EP09c-style convention wants ~{CLSI_MIN_N}+ paired samples; "
-        f"we have {len(paired_df)} (see notes Part 6, Step 5).")
+    models = list_available_models()
+    if not models:
+        log("No trained models found. Train at least one model first.", tag="WARN")
+        return
 
-    agreement_df, figs = compute_agreement_per_celltype(paired_df)
-    agreement_df.to_csv(TABLES_DIR / "agreement_summary_per_celltype.csv", index=False)
+    kappa_result = inter_annotator_kappa_if_available()  # model-independent; computed once
 
-    section5_row = build_section5_row(agreement_df, len(paired_df))
-    section5_row.to_csv(TABLES_DIR / "section5_comparison_row.csv", index=False)
+    full_report = {"inter_annotator_kappa": kappa_result, "models": {}}
+    all_section5_rows = []
 
-    kappa_result = inter_annotator_kappa_if_available()
+    for model_key, display_name in models:
+        log(f"=== Agreement / method-comparison: {display_name} ({model_key}) ===")
+        try:
+            detector = load_detector(model_key)
+        except Exception as e:
+            log(f"Could not load '{model_key}': {e} -- skipping.", tag="WARN")
+            continue
 
-    report = {
-        "n_paired_images": len(paired_df),
-        "clsi_ep09c_min_n_cited_in_literature": CLSI_MIN_N,
-        "agreement_per_celltype": agreement_df.to_dict(orient="records"),
-        "section5_row": section5_row.to_dict(orient="records")[0],
-        "inter_annotator_kappa": kappa_result,
-    }
+        try:
+            log("Building paired system-vs-manual dataset (72-image biomed set) ...")
+            paired_df = build_paired_system_manual(detector)
+            paired_df.to_csv(TABLES_DIR / f"paired_system_manual_counts_{model_key}.csv", index=False)
+            log(f"Paired dataset: {len(paired_df)} images. "
+                f"CLSI EP09c-style convention wants ~{CLSI_MIN_N}+ paired samples; we have {len(paired_df)}.")
+
+            agreement_df, _figs = compute_agreement_per_celltype(paired_df, model_key=model_key, display_name=display_name)
+            agreement_df["model"] = model_key
+            agreement_df.to_csv(TABLES_DIR / f"agreement_summary_per_celltype_{model_key}.csv", index=False)
+
+            section5_row = build_section5_row(agreement_df, len(paired_df), display_name=display_name)
+            section5_row["model"] = model_key
+        except Exception as e:
+            log(f"Agreement stats failed for '{model_key}': {e} -- skipping.", tag="WARN")
+            continue
+
+        all_section5_rows.append(section5_row)
+        full_report["models"][model_key] = {
+            "display_name": display_name,
+            "n_paired_images": len(paired_df),
+            "agreement_per_celltype": agreement_df.to_dict(orient="records"),
+            "section5_row": section5_row.to_dict(orient="records")[0],
+        }
+        for _, row in agreement_df.iterrows():
+            log(f"  {row['cell_type']}: r={row['pearson_r']:.3f}  bias={row['bland_altman_bias']:.2f}  "
+                f"LoA=[{row['loa_lower']:.2f}, {row['loa_upper']:.2f}]  ICC={row['icc_2_1']:.3f}")
+
+    if not all_section5_rows:
+        log("No model evaluated successfully.", tag="WARN")
+        return
+
+    # section5_comparison_row.csv now holds ONE ROW PER MODEL (all labelled
+    # "This study" downstream in literature_comparison_table.py), instead of
+    # a single SSDLite-only row.
+    pd.concat(all_section5_rows, ignore_index=True).to_csv(TABLES_DIR / "section5_comparison_row.csv", index=False)
+
     with open(REPORTS_DIR / "agreement_stats.json", "w") as f:
-        json.dump(report, f, indent=2, default=float)
+        json.dump(full_report, f, indent=2, default=float)
 
-    log("=== Agreement / method-comparison summary ===")
-    for _, row in agreement_df.iterrows():
-        log(f"{row['cell_type']}: r={row['pearson_r']:.3f}  bias={row['bland_altman_bias']:.2f}  "
-            f"LoA=[{row['loa_lower']:.2f}, {row['loa_upper']:.2f}]  ICC={row['icc_2_1']:.3f}")
-    log("Agreement statistics complete. See output/tables and output/figures.")
+    log("Agreement statistics complete for all available models. "
+        "See output/tables and output/figures (per-model files suffixed _<model_key>).")
 
 
 if __name__ == "__main__":

@@ -40,7 +40,7 @@ from PIL import Image
 
 from common import TABLES_DIR, FIGURES_DIR, REPORTS_DIR, log
 from voc_data import build_bccd_records, split_bccd_records
-from models_io import load_ssdlite_detector, load_efficientnet_classifier
+from models_io import load_detector, load_efficientnet_classifier
 
 N_IMAGES = 30
 
@@ -140,14 +140,21 @@ def main():
     results = {}
     latency_map = {}
 
-    detector = load_ssdlite_detector(device="cpu")
-    res, lat = measure_model("SSDLite (detector)", lambda im: detector.predict(im, score_thr=0.35), images)
-    results["ssdlite"] = res
-    latency_map["SSDLite"] = lat
+    from common import list_available_models
+    for model_key, display_name in list_available_models():
+        try:
+            detector = load_detector(model_key, device="cpu")
+            res, lat = measure_model(display_name, lambda im, d=detector: d.predict(im, score_thr=0.35), images)
+            res["model_key"] = model_key
+            results[model_key] = res
+            latency_map[display_name] = lat
+        except Exception as e:
+            log(f"Edge measurement skipped for '{model_key}': {e}", tag="WARN")
 
     try:
         clf = load_efficientnet_classifier(device="cpu")
         res, lat = measure_model("EfficientNet-B0 (classifier)", clf.predict_proba, images)
+        res["model_key"] = "efficientnet"
         results["efficientnet"] = res
         latency_map["EfficientNet-B0"] = lat
     except Exception as e:

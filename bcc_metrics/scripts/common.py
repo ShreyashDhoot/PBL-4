@@ -55,6 +55,91 @@ SEVENTYTWO_ANNOT_DIR = ANNOT_DIR / "annotations"
 SSDLITE_CKPT = PBL4_DIR / "output" / "ssdlite_bccd_best.pth"
 EFFICIENTNET_CKPT = PBL4_DIR / "output" / "efficientnet_bccd_best.pth"
 
+# ----------------------------------------------------------------------------
+# Multi-model registry. Every model trainable via pbl-4/train_bccd_*.py is
+# listed here so detection_eval.py / cv_repeatability.py / agreement_stats.py
+# / calibration_eval.py / robustness_eval.py / quantization_bench.py /
+# edge_performance.py can all loop over "every model that has actually been
+# trained" instead of hardcoding SSDLite. A model is "available" once its
+# `onnx` file (or, for the two native-pytorch loaders, its `native_ckpt`
+# file) exists on disk -- run pbl-4/train_all_models.py first.
+#
+# kind:
+#   "native_ssd"  -> loaded via models_io.SSDLiteDetector-style code
+#                     (native .pth checkpoint, torchvision SSD class)
+#   "onnx"        -> loaded via models_io.OnnxDetector (onnxruntime), the
+#                     generic path used by every non-torchvision model
+#   "native_only" -> trained/evaluated only inside its own train_*.py
+#                     (e.g. RTMDet-tiny without an mmdeploy ONNX export);
+#                     bcc_metrics scripts skip these with a clear log line
+#                     rather than failing.
+MODEL_REGISTRY = {
+    "ssdlite": {
+        "display_name": "SSDLite (baseline, MobileNetV3-Large, 320px)",
+        "kind": "native_ssd",
+        "native_ckpt": SSDLITE_CKPT,
+        "onnx": PBL4_DIR / "output" / "ssdlite_bccd.onnx",
+    },
+    "ssdlite_v2": {
+        "display_name": "SSDLite v2 (small-object-optimized, 512px, focal loss)",
+        "kind": "native_ssd_v2",
+        "native_ckpt": PBL4_DIR / "output" / "ssdlite_v2" / "ssdlite_v2_bccd_best.pth",
+        "onnx": PBL4_DIR / "output" / "ssdlite_v2" / "ssdlite_v2_bccd.onnx",
+    },
+    "yolov8n": {
+        "display_name": "YOLOv8n-P2 (Ultralytics)",
+        "kind": "onnx",
+        "onnx": PBL4_DIR / "output" / "yolov8n" / "yolov8n_bccd.onnx",
+    },
+    "yolo11n": {
+        "display_name": "YOLO11n-P2 (Ultralytics)",
+        "kind": "onnx",
+        "onnx": PBL4_DIR / "output" / "yolo11n" / "yolo11n_bccd.onnx",
+    },
+    "rtdetr_nano": {
+        "display_name": "RT-DETR (smallest available Ultralytics scale)",
+        "kind": "onnx",
+        "onnx": PBL4_DIR / "output" / "rtdetr_nano" / "rtdetr_nano_bccd.onnx",
+    },
+    "nanodet_plus": {
+        "display_name": "NanoDet-Plus-style (self-contained, GFL head)",
+        "kind": "onnx",
+        "onnx": PBL4_DIR / "output" / "nanodet_plus" / "nanodet_plus_bccd.onnx",
+    },
+    "efficientdet_lite0": {
+        "display_name": "EfficientDet-Lite0 (effdet, BiFPN)",
+        "kind": "onnx",
+        "onnx": PBL4_DIR / "output" / "efficientdet_lite0" / "efficientdet_lite0_bccd.onnx",
+    },
+    "rtmdet_tiny": {
+        "display_name": "RTMDet-tiny (mmyolo)",
+        "kind": "native_only",
+        "onnx": PBL4_DIR / "output" / "rtmdet_tiny" / "rtmdet_tiny_bccd.onnx",  # only if mmdeploy export was run
+    },
+}
+
+
+def list_available_models():
+    """Returns [(model_key, display_name), ...] for every model in
+    MODEL_REGISTRY that actually has a usable checkpoint on disk right now
+    (native .pth for the two torchvision-native models, .onnx for every
+    other model). Never raises -- an empty list just means 'train something
+    first', which every caller logs clearly rather than crashing on."""
+    available = []
+    for key, spec in MODEL_REGISTRY.items():
+        ready = False
+        if spec["kind"] in ("native_ssd", "native_ssd_v2"):
+            ready = spec["native_ckpt"].exists()
+        if not ready and spec.get("onnx") is not None:
+            ready = Path(spec["onnx"]).exists()
+        if ready:
+            available.append((key, spec["display_name"]))
+        else:
+            log(f"Model '{key}' ({spec['display_name']}) has no trained checkpoint/onnx yet -- "
+                f"skipping. Train it with pbl-4/train_bccd_{key}_detection.py "
+                f"(or pbl-4/train_all_models.py for every model).", tag="WARN")
+    return available
+
 FIGURES_DIR = OUTPUT_DIR / "figures"
 TABLES_DIR = OUTPUT_DIR / "tables"
 REPORTS_DIR = OUTPUT_DIR / "reports"

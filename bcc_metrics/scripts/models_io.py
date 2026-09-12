@@ -35,6 +35,7 @@ ships in practice for edge CPUs like the Raspberry Pi 4, so we use that as
 the third level.
 """
 
+import json
 import time
 from pathlib import Path
 
@@ -238,6 +239,335 @@ def load_ssdlite_detector(device="cpu", quantize_mode="fp32"):
 
 def load_efficientnet_classifier(device="cpu", quantize_mode="fp32"):
     return EfficientNetClassifier(device=device, quantize_mode=quantize_mode)
+
+
+class SSDLiteV2Detector:
+    """Native loader for the small-object-optimized SSDLite v2 model (see
+    pbl-4/train_bccd_ssdlite_v2_detection.py). Reuses that script's own
+    `build_model_v2()` so the reconstructed architecture (custom anchor
+    generator, 512px size, focal-loss head) is guaranteed to match exactly
+    what the checkpoint was trained with, instead of duplicating that
+    construction logic here."""
+
+    def __init__(self, device="cpu", quantize_mode="fp32", img_size=512):
+        _require_torch()
+        from common import PBL4_DIR
+        ckpt = PBL4_DIR / "output" / "ssdlite_v2" / "ssdlite_v2_bccd_best.pth"
+        if not ckpt.exists():
+            raise RuntimeError(
+                f"SSDLite v2 checkpoint not found at {ckpt}. Run "
+                "`python train_bccd_ssdlite_v2_detection.py` first (from the pbl-4 repo)."
+            )
+        import sys
+        if str(PBL4_DIR) not in sys.path:
+            sys.path.insert(0, str(PBL4_DIR))
+        from train_bccd_ssdlite_v2_detection import build_model_v2  # noqa: E402
+
+        self.device = device
+        self.quantize_mode = quantize_mode
+        self.img_size = img_size
+
+        model = build_model_v2(pretrained_backbone=False)
+        state = torch.load(str(ckpt), map_location="cpu")
+        model.load_state_dict(state)
+        model.eval()
+
+        model = SSDLiteDetector._apply_quantization(model, quantize_mode)
+        self.model = model.to(device if quantize_mode != "dynamic_int8" else "cpu")
+        if quantize_mode == "dynamic_int8":
+            self.device = "cpu"
+
+    def predict(self, image: "Image.Image", score_thr: float = 0.0):
+        w0, h0 = image.width, image.height
+        resized = image.resize((self.img_size, self.img_size))
+        x = TF.to_tensor(resized)
+        if self.quantize_mode == "fp16":
+            x = x.half()
+        x = x.to(self.device)
+        with torch.no_grad():
+            pred = self.model([x])[0]
+        boxes = pred["boxes"].detach().cpu().float().numpy()
+        labels = pred["labels"].detach().cpu().numpy()
+        scores = pred["scores"].detach().cpu().float().numpy()
+        if len(boxes):
+            sx, sy = w0 / self.img_size, h0 / self.img_size
+            boxes[:, [0, 2]] *= sx
+            boxes[:, [1, 3]] *= sy
+        keep = scores >= score_thr
+        return boxes[keep], labels[keep], scores[keep]
+
+    def count_cells(self, image, score_thr=0.35):
+        _, labels, _ = self.predict(image, score_thr=score_thr)
+        out = {c: 0 for c in CELL_CLASSES}
+        for l in labels:
+            name = DET_CLASSES[int(l)]
+            if name in out:
+                out[name] += 1
+        return out
+
+    def timed_predict(self, image, score_thr=0.35):
+        t0 = time.perf_counter()
+        boxes, labels, scores = self.predict(image, score_thr=score_thr)
+        t1 = time.perf_counter()
+        return boxes, labels, scores, (t1 - t0) * 1000.0
+
+    def num_parameters(self):
+        return sum(p.numel() for p in self.model.parameters())
+
+    def state_dict_size_mb(self):
+        total_bytes = sum(p.numel() * p.element_size() for p in self.model.parameters())
+        total_bytes += sum(b.numel() * b.element_size() for b in self.model.buffers())
+        return total_bytes / (1024 * 1024)
+
+
+def load_ssdlite_v2_detector(device="cpu", quantize_mode="fp32"):
+    return SSDLiteV2Detector(device=device, quantize_mode=quantize_mode)
+
+
+# ----------------------------------------------------------------------------
+# Generic ONNX runtime detector -- one code path for every non-torchvision
+# model exported by the train_bccd_*.py scripts (YOLOv8n-P2, YOLO11n-P2,
+# RT-DETR, NanoDet-Plus-style, EfficientDet-Lite0, and optionally
+# RTMDet-tiny if an mmdeploy export exists). Reads the `<onnx>.meta.json`
+# sidecar each training script writes via bccd_data_utils.write_onnx_meta()
+# to know how to preprocess (letterbox vs. plain resize, normalization) and
+# how to parse the output (two supported layouts, see meta['output_layout']).
+# ----------------------------------------------------------------------------
+_ORT_IMPORT_ERROR = None
+try:
+    import onnxruntime as ort
+except Exception as e:  # pragma: no cover
+    _ORT_IMPORT_ERROR = e
+
+
+def _require_onnxruntime():
+    if _ORT_IMPORT_ERROR is not None:
+        raise RuntimeError(
+            "onnxruntime is required to evaluate the ONNX-exported models (everything except "
+            f"the two native torchvision SSDLite models) but is not importable ({_ORT_IMPORT_ERROR}). "
+            "Install with:\n    pip install onnxruntime\n"
+        )
+
+
+def _letterbox(image: "Image.Image", size):
+    """Resize preserving aspect ratio, pad with gray (114,114,114) to
+    `size` (H,W) -- matches Ultralytics' own preprocessing convention, so
+    ONNX exports with letterbox=true in their meta.json decode correctly.
+    Returns (padded_image, scale, pad_left, pad_top)."""
+    H, W = size
+    w0, h0 = image.width, image.height
+    scale = min(W / w0, H / h0)
+    nw, nh = int(round(w0 * scale)), int(round(h0 * scale))
+    resized = image.resize((nw, nh))
+    canvas = Image.new("RGB", (W, H), (114, 114, 114))
+    pad_left, pad_top = (W - nw) // 2, (H - nh) // 2
+    canvas.paste(resized, (pad_left, pad_top))
+    return canvas, scale, pad_left, pad_top
+
+
+def _nms_numpy(boxes, scores, labels, iou_thr=0.55):
+    """Plain-numpy class-aware NMS, used only for the 'raw_yolo_head'
+    fallback layout (installed ultralytics too old for export(nms=True))."""
+    keep_all = []
+    for cls in np.unique(labels):
+        idx = np.where(labels == cls)[0]
+        b, s = boxes[idx], scores[idx]
+        order = s.argsort()[::-1]
+        picked = []
+        while order.size > 0:
+            i = order[0]
+            picked.append(idx[i])
+            if order.size == 1:
+                break
+            xx1 = np.maximum(b[i, 0], b[order[1:], 0])
+            yy1 = np.maximum(b[i, 1], b[order[1:], 1])
+            xx2 = np.minimum(b[i, 2], b[order[1:], 2])
+            yy2 = np.minimum(b[i, 3], b[order[1:], 3])
+            w = np.clip(xx2 - xx1, 0, None)
+            h = np.clip(yy2 - yy1, 0, None)
+            inter = w * h
+            area_i = (b[i, 2] - b[i, 0]) * (b[i, 3] - b[i, 1])
+            area_o = (b[order[1:], 2] - b[order[1:], 0]) * (b[order[1:], 3] - b[order[1:], 1])
+            iou = inter / np.maximum(area_i + area_o - inter, 1e-9)
+            order = order[1:][iou <= iou_thr]
+        keep_all.extend(picked)
+    return np.array(sorted(keep_all), dtype=int)
+
+
+class OnnxDetector:
+    """Generic onnxruntime-based detector matching the same predict() /
+    count_cells() / timed_predict() interface as SSDLiteDetector, driven
+    entirely by the `<onnx_path>.meta.json` sidecar (see
+    bccd_data_utils.write_onnx_meta in pbl-4/)."""
+
+    def __init__(self, onnx_path, device="cpu"):
+        _require_onnxruntime()
+        onnx_path = Path(onnx_path)
+        meta_path = Path(str(onnx_path) + ".meta.json")
+        if not onnx_path.exists():
+            raise RuntimeError(f"ONNX file not found at {onnx_path}. Train/export that model first.")
+        if not meta_path.exists():
+            raise RuntimeError(f"ONNX meta sidecar not found at {meta_path} (expected alongside the .onnx file).")
+
+        with open(meta_path) as f:
+            self.meta = json.load(f)
+
+        providers = ["CPUExecutionProvider"]
+        if device == "cuda":
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        self.session = ort.InferenceSession(str(onnx_path), providers=providers)
+        self.input_name = self.session.get_inputs()[0].name
+        self.size_hw = tuple(self.meta["input_size_hw"])
+        self.mean = np.asarray(self.meta.get("mean", [0.0, 0.0, 0.0]), dtype=np.float32)
+        self.std = np.asarray(self.meta.get("std", [1.0, 1.0, 1.0]), dtype=np.float32)
+        self.letterbox = bool(self.meta.get("letterbox", False))
+        self.output_layout = self.meta.get("output_layout", "separate_boxes_scores_labels")
+        self.onnx_path = onnx_path
+
+    def _preprocess(self, image: "Image.Image"):
+        H, W = self.size_hw
+        if self.letterbox:
+            canvas, scale, pad_left, pad_top = _letterbox(image, (H, W))
+            transform_info = ("letterbox", scale, pad_left, pad_top)
+        else:
+            canvas = image.resize((W, H))
+            sx, sy = image.width / W, image.height / H
+            transform_info = ("resize", sx, sy)
+
+        arr = np.asarray(canvas).astype(np.float32) / 255.0  # HWC, RGB, [0,1]
+        arr = (arr - self.mean) / self.std
+        arr = arr.transpose(2, 0, 1)[None, ...].astype(np.float32)  # 1,C,H,W
+        return arr, transform_info
+
+    def _undo_transform(self, boxes, transform_info):
+        if len(boxes) == 0:
+            return boxes
+        boxes = boxes.copy()
+        if transform_info[0] == "letterbox":
+            _, scale, pad_left, pad_top = transform_info
+            boxes[:, [0, 2]] -= pad_left
+            boxes[:, [1, 3]] -= pad_top
+            boxes /= scale
+        else:
+            _, sx, sy = transform_info
+            boxes[:, [0, 2]] *= sx
+            boxes[:, [1, 3]] *= sy
+        return boxes
+
+    def predict(self, image: "Image.Image", score_thr: float = 0.0):
+        arr, transform_info = self._preprocess(image)
+        outputs = self.session.run(None, {self.input_name: arr})
+
+        if self.output_layout == "single_array_xyxy_conf_cls":
+            det = outputs[0]
+            det = np.asarray(det).reshape(-1, det.shape[-1])  # [N,6]
+            keep = det[:, 4] > 1e-6  # exported graph already NMS'd + conf-filtered
+            det = det[keep]
+            boxes, scores = det[:, :4], det[:, 4]
+            labels = det[:, 5].astype(int) + 1  # -> 1-indexed w/ background at 0
+
+        elif self.output_layout == "raw_yolo_head":
+            raw = np.asarray(outputs[0])[0]  # [4+nc, num_anchors] (Ultralytics raw export convention)
+            boxes_xywh, cls_scores = raw[:4, :].T, raw[4:, :].T
+            labels_raw = cls_scores.argmax(axis=1)
+            scores = cls_scores.max(axis=1)
+            keep0 = scores > 0.05
+            boxes_xywh, scores, labels_raw = boxes_xywh[keep0], scores[keep0], labels_raw[keep0]
+            cx, cy, w, h = boxes_xywh[:, 0], boxes_xywh[:, 1], boxes_xywh[:, 2], boxes_xywh[:, 3]
+            boxes = np.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1)
+            if len(boxes):
+                keep_idx = _nms_numpy(boxes, scores, labels_raw, iou_thr=0.55)
+                boxes, scores, labels_raw = boxes[keep_idx], scores[keep_idx], labels_raw[keep_idx]
+            labels = labels_raw.astype(int) + 1
+
+        else:  # "separate_boxes_scores_labels" -- our own torchvision-style export contract
+            boxes, scores, labels = outputs[0], outputs[1].reshape(-1), outputs[2].reshape(-1).astype(int)
+
+        boxes = self._undo_transform(np.asarray(boxes, dtype=np.float32), transform_info)
+        keep = scores >= score_thr
+        return boxes[keep], np.asarray(labels)[keep], np.asarray(scores)[keep]
+
+    def count_cells(self, image, score_thr=0.35):
+        _, labels, _ = self.predict(image, score_thr=score_thr)
+        out = {c: 0 for c in CELL_CLASSES}
+        for l in labels:
+            idx = int(l)
+            if 0 <= idx < len(DET_CLASSES):
+                name = DET_CLASSES[idx]
+                if name in out:
+                    out[name] += 1
+        return out
+
+    def timed_predict(self, image, score_thr=0.35):
+        t0 = time.perf_counter()
+        boxes, labels, scores = self.predict(image, score_thr=score_thr)
+        t1 = time.perf_counter()
+        return boxes, labels, scores, (t1 - t0) * 1000.0
+
+    def num_parameters(self):
+        return None  # not directly available from an ONNX graph without extra tooling
+
+    def state_dict_size_mb(self):
+        return self.onnx_path.stat().st_size / (1024 * 1024)
+
+
+def load_detector(model_key, device="cpu", quantize_mode="fp32"):
+    """Single dispatch point used by every bcc_metrics eval script: given a
+    MODEL_REGISTRY key, returns an object exposing predict() / count_cells()
+    / timed_predict() / num_parameters() / state_dict_size_mb(), regardless
+    of whether the underlying model is a native torchvision SSD or an
+    ONNX-exported model from any other framework."""
+    from common import MODEL_REGISTRY
+
+    if model_key not in MODEL_REGISTRY:
+        raise ValueError(f"Unknown model key '{model_key}'. Known keys: {list(MODEL_REGISTRY)}")
+    spec = MODEL_REGISTRY[model_key]
+
+    if spec["kind"] == "native_ssd":
+        return load_ssdlite_detector(device=device, quantize_mode=quantize_mode)
+    if spec["kind"] == "native_ssd_v2":
+        return load_ssdlite_v2_detector(device=device, quantize_mode=quantize_mode)
+    if spec["kind"] == "native_only":
+        raise RuntimeError(
+            f"Model '{model_key}' has no ONNX export ({spec['display_name']}), and this bcc_metrics "
+            "suite only runs generic evaluation through ONNX for non-torchvision models. See that "
+            "model's own train_bccd_*.py run_report for its native evaluation numbers instead."
+        )
+    # "onnx"
+    if quantize_mode != "fp32":
+        return load_onnx_detector_quantized(spec["onnx"], device=device, quantize_mode=quantize_mode)
+    return OnnxDetector(spec["onnx"], device=device)
+
+
+def load_onnx_detector_quantized(onnx_path, device="cpu", quantize_mode="fp16"):
+    """FP16 / dynamic-INT8 variants of an ONNX model, produced on first use
+    via onnxruntime's own quantization tooling and cached next to the
+    original .onnx file, so quantization_bench.py's 3-level comparison
+    works for every ONNX-based model too, not just the native SSDLite."""
+    _require_onnxruntime()
+    onnx_path = Path(onnx_path)
+    if quantize_mode == "fp32":
+        return OnnxDetector(onnx_path, device=device)
+
+    cache_path = onnx_path.with_suffix(f".{quantize_mode}.onnx")
+    meta_src = Path(str(onnx_path) + ".meta.json")
+    meta_dst = Path(str(cache_path) + ".meta.json")
+    if not meta_dst.exists() and meta_src.exists():
+        meta_dst.write_text(meta_src.read_text())
+
+    if not cache_path.exists():
+        if quantize_mode == "fp16":
+            from onnxruntime.transformers.float16 import convert_float_to_float16
+            import onnx
+            model = onnx.load(str(onnx_path))
+            model_fp16 = convert_float_to_float16(model)
+            onnx.save(model_fp16, str(cache_path))
+        elif quantize_mode == "dynamic_int8":
+            from onnxruntime.quantization import quantize_dynamic, QuantType
+            quantize_dynamic(str(onnx_path), str(cache_path), weight_type=QuantType.QInt8)
+        else:
+            raise ValueError(f"Unknown quantize_mode: {quantize_mode}")
+    return OnnxDetector(cache_path, device=device)
 
 
 # ----------------------------------------------------------------------------

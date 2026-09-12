@@ -15,6 +15,18 @@ pingouin>=0.5      # cross-checks the manual ICC(2,1) implementation
 psutil>=5.9         # peak RAM measurement in edge_performance.py
 tabulate>=0.9        # required by pandas.DataFrame.to_markdown() in literature_comparison_table.py
 
-# Only needed if you re-run the original training scripts from pbl-4/
-# (train_bccd_ssdlite_detection.py / train_efficientnet_bccd.py):
-# plotly, tqdm, kaleido (for plotly static image export)
+# Needed by every ONNX-exported model (everything except the two native
+# torchvision SSDLite models) -- see bcc_metrics/scripts/models_io.py::OnnxDetector:
+onnxruntime>=1.16
+
+# Only needed if you re-run the training scripts in pbl-4/:
+# plotly, tqdm, kaleido (for plotly static image export) -- every train_bccd_*.py
+#
+# Per-model extras (only needed for the specific model you're training):
+#   train_bccd_ssdlite_detection.py / train_bccd_ssdlite_v2_detection.py: nothing extra (torch/torchvision only)
+#   train_bccd_yolov8n_detection.py / train_bccd_yolo11n_detection.py / train_bccd_rtdetr_nano_detection.py:
+#       pip install ultralytics
+#   train_bccd_nanodet_plus_detection.py: nothing extra (torch/torchvision only; self-contained)
+#   train_bccd_efficientdet_lite0_detection.py: pip install effdet timm
+#   train_bccd_rtmdet_tiny_detection.py: pip install -U openmim && mim install mmengine "mmcv>=2.0.0" "mmdet>=3.0.0" "mmyolo>=0.6.0"
+#   TFLite conversion (EfficientDet-Lite0 only): pip install onnx2tf

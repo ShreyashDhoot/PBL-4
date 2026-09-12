@@ -124,19 +124,23 @@ def main():
     section5_path = TABLES_DIR / "section5_comparison_row.csv"
     if section5_path.exists():
         ours = pd.read_csv(section5_path)
-        our_row = {
-            "Tier": "This study",
-            "Analyzer": ours.loc[0, "System"],
-            "Compared against": ours.loc[0, "Compared against"],
-            "Reported numbers": (
-                f"Pearson {ours.loc[0, 'Correlation (r)']}; "
-                f"Bland-Altman {ours.loc[0, 'Bland-Altman bias / LoA']}; "
-                f"Passing-Bablok {ours.loc[0, 'Passing-Bablok slope/intercept']}"
-            ),
-            "Source": ours.loc[0, "Source"],
-            "Sample-size caveat": ours.loc[0, "Sample-size caveat"],
-        }
-        full_df = pd.concat([lit_df, pd.DataFrame([our_row])], ignore_index=True)
+        # One row per evaluated model (agreement_stats.py now writes one
+        # "This study" row per model in MODEL_REGISTRY, not just SSDLite).
+        our_rows = []
+        for _, r in ours.iterrows():
+            our_rows.append({
+                "Tier": "This study",
+                "Analyzer": r["System"],
+                "Compared against": r["Compared against"],
+                "Reported numbers": (
+                    f"Pearson {r['Correlation (r)']}; "
+                    f"Bland-Altman {r['Bland-Altman bias / LoA']}; "
+                    f"Passing-Bablok {r['Passing-Bablok slope/intercept']}"
+                ),
+                "Source": r["Source"],
+                "Sample-size caveat": r["Sample-size caveat"],
+            })
+        full_df = pd.concat([lit_df, pd.DataFrame(our_rows)], ignore_index=True)
     else:
         log("output/tables/section5_comparison_row.csv not found -- run agreement_stats.py first. "
             "Writing literature-only table for now.", tag="WARN")

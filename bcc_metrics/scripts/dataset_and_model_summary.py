@@ -5,12 +5,14 @@ dataset_and_model_summary.py
 Produces the descriptive, non-inferential figures/tables the paper already
 references (Fig. 3 class distribution, dataset split sizes) plus an updated,
 measured version of Table I ("Performance Comparison of Models") using real
-numbers from this run instead of the placeholder 92/95/90% in the current
-draft. This directly answers next-step item #6's ablation note: SSDLite,
-EfficientNet-B0, and MobileNetV2 are all included; a YOLO variant is left as
-an explicit TODO with instructions, since no YOLO checkpoint ships in
-pbl-4.zip (the notes: 'either add the comparison or narrow the methodology
-text to match what was actually run').
+numbers from this run instead of the placeholder 92/95/90% in the original
+draft. Table I now has ONE ROW PER MODEL IN MODEL_REGISTRY (see common.py:
+SSDLite, SSDLite v2, YOLOv8n-P2, YOLO11n-P2, RT-DETR, NanoDet-Plus-style,
+EfficientDet-Lite0, RTMDet-tiny), built automatically -- filling the "no
+YOLO checkpoint ships" gap the notes originally flagged -- plus the
+EfficientNet-B0/MobileNetV2 classifier rows kept for backward compatibility.
+Any model not yet trained just gets NaN + a "not yet trained" note instead
+of an invented number.
 
 Outputs:
   output/figures/class_distribution.png       (Fig. 3 equivalent, BCCD full)
@@ -20,6 +22,7 @@ Outputs:
 """
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -69,68 +72,69 @@ def plot_split_sizes(train, val, test, out_path):
 def build_table1_from_measured_results():
     """Reads the CSVs already written by detection_eval.py, edge_performance.py,
     and quantization_bench.py (fp32 row) to assemble an evidence-backed Table I,
-    instead of the paper's current hardcoded 92%/95%/90% placeholders. Run those
-    scripts first; if their outputs are missing this fills in NaN with a note
-    rather than inventing numbers.
+    instead of the paper's original hardcoded 92%/95%/90% placeholders -- now
+    with ONE ROW PER MODEL IN MODEL_REGISTRY (see common.py), automatically,
+    instead of a hardcoded SSDLite-only row + a YOLO "not implemented yet" TODO
+    row. Run detection_eval.py / edge_performance.py / quantization_bench.py
+    first; any model missing one of those outputs gets NaN in that column
+    rather than an invented number.
     """
-    rows = []
+    from common import MODEL_REGISTRY
 
+    rows = []
     det_path = TABLES_DIR / "map_summary.csv"
     edge_path = TABLES_DIR / "edge_performance.csv"
     quant_path = TABLES_DIR / "quantization_tradeoff.csv"
 
-    ssdlite_acc = ssdlite_latency = ssdlite_mem = np.nan
-    if det_path.exists():
-        det_df = pd.read_csv(det_path)
-        bccd_row = det_df[det_df["dataset"] == "bccd_test"]
-        if len(bccd_row):
-            ssdlite_acc = float(bccd_row.iloc[0]["accuracy"])
-    if edge_path.exists():
-        edge_df = pd.read_csv(edge_path)
-        ssd_row = edge_df[edge_df["model"].str.contains("SSDLite", na=False)]
-        if len(ssd_row):
-            ssdlite_latency = float(ssd_row.iloc[0]["mean_latency_ms"])
-    if quant_path.exists():
-        quant_df = pd.read_csv(quant_path)
-        fp32_row = quant_df[quant_df["quantization_level"] == "fp32"]
-        if len(fp32_row) and "model_size_mb" in fp32_row.columns:
-            ssdlite_mem = float(fp32_row.iloc[0]["model_size_mb"])
+    det_df = pd.read_csv(det_path) if det_path.exists() else pd.DataFrame()
+    edge_df = pd.read_csv(edge_path) if edge_path.exists() else pd.DataFrame()
+    quant_df = pd.read_csv(quant_path) if quant_path.exists() else pd.DataFrame()
 
-    rows.append({"Model": "SSDLite (MobileNetV3-Large backbone)",
-                 "Accuracy": ssdlite_acc, "Latency (ms)": ssdlite_latency, "Memory (MB)": ssdlite_mem,
-                 "Note": "Object detector; accuracy = box-level match rate on BCCD test split"})
+    for model_key, spec in MODEL_REGISTRY.items():
+        acc = mAP50 = latency = mem = np.nan
+        if len(det_df):
+            bccd_row = det_df[det_df["dataset"] == f"{model_key}__bccd_test"]
+            if len(bccd_row):
+                acc = float(bccd_row.iloc[0]["accuracy"])
+                mAP50 = float(bccd_row.iloc[0]["mAP_0.5"]) if bccd_row.iloc[0]["mAP_0.5"] == bccd_row.iloc[0]["mAP_0.5"] else np.nan
+        if len(edge_df) and "model_key" in edge_df.columns:
+            edge_row = edge_df[edge_df["model_key"] == model_key]
+            if len(edge_row):
+                latency = float(edge_row.iloc[0]["mean_latency_ms"])
+        if len(quant_df):
+            fp32_row = quant_df[(quant_df.get("model") == model_key) & (quant_df["quantization_level"] == "fp32")]
+            if len(fp32_row) and "model_size_mb" in fp32_row.columns:
+                mem = float(fp32_row.iloc[0]["model_size_mb"])
 
-    eff_acc = eff_latency = eff_mem = np.nan
-    metrics_summary_path = None
-    for candidate in [TABLES_DIR.parent.parent / "pbl-4" / "output" / "metrics_summary.json"]:
-        if candidate.exists():
-            metrics_summary_path = candidate
-    if metrics_summary_path:
+        checkpoint_exists = (
+            spec["native_ckpt"].exists() if spec["kind"] in ("native_ssd", "native_ssd_v2")
+            else Path(spec["onnx"]).exists() if spec.get("onnx") else False
+        )
+        note = "Trained + evaluated" if checkpoint_exists else (
+            f"Not yet trained -- run pbl-4/train_bccd_{model_key}_detection.py, then re-run "
+            "detection_eval.py/edge_performance.py/quantization_bench.py to populate this row."
+        )
+        rows.append({
+            "Model": spec["display_name"], "model_key": model_key,
+            "Accuracy": acc, "mAP@0.5": mAP50, "Latency (ms)": latency, "Memory (MB)": mem,
+            "Note": note,
+        })
+
+    rows.append({"Model": "EfficientNet-B0 (multi-label presence classifier)", "model_key": "efficientnet",
+                 "Accuracy": np.nan, "mAP@0.5": np.nan, "Latency (ms)": np.nan, "Memory (MB)": np.nan,
+                 "Note": "Image-level multi-label task, not per-box detection -- see train_efficientnet_bccd.py. "
+                          "Fill Accuracy from pbl-4/output/metrics_summary.json if present."})
+
+    eff_acc = np.nan
+    metrics_summary_path = TABLES_DIR.parent.parent / "pbl-4" / "output" / "metrics_summary.json"
+    if metrics_summary_path.exists():
         with open(metrics_summary_path) as f:
-            summary = json.load(f)
-        eff_acc = summary.get("test_accuracy", np.nan)
-    if edge_path.exists():
-        edge_df = pd.read_csv(edge_path)
-        eff_row = edge_df[edge_df["model"].str.contains("EfficientNet", na=False)]
+            eff_acc = json.load(f).get("test_accuracy", np.nan)
+    if len(edge_df) and "model_key" in edge_df.columns:
+        eff_row = edge_df[edge_df["model_key"] == "efficientnet"]
         if len(eff_row):
-            eff_latency = float(eff_row.iloc[0]["mean_latency_ms"])
-            eff_mem = float(eff_row.iloc[0]["peak_ram_mb"]) if eff_row.iloc[0]["peak_ram_mb"] == eff_row.iloc[0]["peak_ram_mb"] else np.nan
-
-    rows.append({"Model": "EfficientNet-B0 (multi-label presence classifier)",
-                 "Accuracy": eff_acc, "Latency (ms)": eff_latency, "Memory (MB)": eff_mem,
-                 "Note": "Image-level multi-label task, not per-box detection -- see train_efficientnet_bccd.py"})
-
-    rows.append({"Model": "MobileNetV2", "Accuracy": np.nan, "Latency (ms)": np.nan, "Memory (MB)": np.nan,
-                 "Note": "No trained MobileNetV2 checkpoint shipped in pbl-4.zip; the paper's methodology "
-                          "mentions this architecture but no matching train_*.py/checkpoint exists in the repo. "
-                          "Train and export it the same way as train_efficientnet_bccd.py before reporting, "
-                          "or remove it from the methodology text to match what was actually run."})
-
-    rows.append({"Model": "YOLO variant (e.g. YOLOv8n)", "Accuracy": np.nan, "Latency (ms)": np.nan, "Memory (MB)": np.nan,
-                 "Note": "Notes next-step item #6: literature review and methodology mention YOLO as an "
-                          "alternative, but no YOLO training script/checkpoint ships in this repo. Either "
-                          "add a small ablation (e.g. ultralytics YOLOv8n on the same BCCD VOC-to-YOLO-converted "
-                          "labels) or narrow the methodology text to match SSDLite/EfficientNet only."})
+            rows[-1]["Latency (ms)"] = float(eff_row.iloc[0]["mean_latency_ms"])
+    rows[-1]["Accuracy"] = eff_acc
 
     return pd.DataFrame(rows)
 
