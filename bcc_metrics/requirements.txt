@@ -1,32 +1,43 @@
-# Core scientific stack
+# Core runtime and scientific stack
 numpy>=1.24
 pandas>=2.0
 scipy>=1.10
 matplotlib>=3.7
+pillow>=9.0
 
-# Deep learning (needed for every script that runs the trained models:
-# detection_eval, cv_repeatability, agreement_stats, calibration_eval,
-# robustness_eval, quantization_bench, edge_performance)
+# Deep learning
+# Required by the PyTorch training and evaluation scripts.
 torch>=2.0
 torchvision>=0.15
 
-# Optional, improves output but not required (code falls back gracefully):
-pingouin>=0.5      # cross-checks the manual ICC(2,1) implementation
-psutil>=5.9         # peak RAM measurement in edge_performance.py
-tabulate>=0.9        # required by pandas.DataFrame.to_markdown() in literature_comparison_table.py
+# Metrics and reporting
+# pingouin and psutil have fallbacks in the metrics code, while tabulate is
+# needed by pandas.DataFrame.to_markdown().
+pingouin>=0.5
+psutil>=5.9
+tabulate>=0.9
 
-# Needed by every ONNX-exported model (everything except the two native
-# torchvision SSDLite models) -- see bcc_metrics/scripts/models_io.py::OnnxDetector:
+# ONNX inference and conversion
+# onnx2tf is only needed when exporting EfficientDet-Lite0 to TFLite.
 onnxruntime>=1.16
+onnx2tf
 
-# Only needed if you re-run the training scripts in pbl-4/:
-# plotly, tqdm, kaleido (for plotly static image export) -- every train_bccd_*.py
-#
-# Per-model extras (only needed for the specific model you're training):
-#   train_bccd_ssdlite_detection.py / train_bccd_ssdlite_v2_detection.py: nothing extra (torch/torchvision only)
-#   train_bccd_yolov8n_detection.py / train_bccd_yolo11n_detection.py / train_bccd_rtdetr_nano_detection.py:
-#       pip install ultralytics
-#   train_bccd_nanodet_plus_detection.py: nothing extra (torch/torchvision only; self-contained)
-#   train_bccd_efficientdet_lite0_detection.py: pip install effdet timm
-#   train_bccd_rtmdet_tiny_detection.py: pip install -U openmim && mim install mmengine "mmcv>=2.0.0" "mmdet>=3.0.0" "mmyolo>=0.6.0"
-#   TFLite conversion (EfficientDet-Lite0 only): pip install onnx2tf
+# Shared training utilities
+plotly
+tqdm
+kaleido
+
+# Model-specific training packages
+# YOLOv8n, YOLO11n, and RT-DETR-nano.
+ultralytics
+
+# EfficientDet-Lite0.
+effdet
+timm
+
+# RTMDet-tiny bootstrap tool. OpenMMLab packages must be installed with mim
+# because compatible wheels depend on the active Python/CUDA setup.
+openmim
+
+# After installing this file, install RTMDet-tiny dependencies with:
+#   mim install mmengine "mmcv>=2.0.0" "mmdet>=3.0.0" "mmyolo>=0.6.0"
