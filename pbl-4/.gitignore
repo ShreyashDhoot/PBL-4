@@ -1,10 +1,11 @@
 # Ignore everything in this repository by default
-*
+
 
 # Keep this file tracked
 !.gitignore
 !inference.py
 !train_bccd_ssdlite_detection.py
+!data
 # Keep the output folder itself
 !output/
 
