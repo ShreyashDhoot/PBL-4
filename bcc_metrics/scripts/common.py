@@ -41,11 +41,29 @@ THIS_DIR = Path(__file__).resolve().parent
 SUITE_ROOT = THIS_DIR.parent
 PROJECT_ROOT = SUITE_ROOT.parent
 
-PBL4_DIR = Path(os.environ.get("BCC_PBL4_DIR", PROJECT_ROOT / "pbl-4"))
-ANNOT_DIR = Path(os.environ.get("BCC_ANNOT_DIR", PROJECT_ROOT / "annotations"))
-OUTPUT_DIR = Path(os.environ.get("BCC_OUTPUT_DIR", SUITE_ROOT / "output"))
+def _project_path(value, default):
+    """Resolve configured relative paths from the project root, not cwd."""
+    path = Path(value) if value is not None else Path(default)
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
-BCCD_VOC_DIR = PBL4_DIR / "data" / "BCCD_Dataset-master" / "BCCD"
+
+PBL4_DIR = _project_path(os.environ.get("BCC_PBL4_DIR"), PROJECT_ROOT / "pbl-4")
+ANNOT_DIR = _project_path(os.environ.get("BCC_ANNOT_DIR"), PROJECT_ROOT / "annotations")
+OUTPUT_DIR = _project_path(os.environ.get("BCC_OUTPUT_DIR"), SUITE_ROOT / "output")
+
+
+def _find_bccd_root():
+    """Use either the repo-local or project-root-relative dataset layout."""
+    candidates = (
+        PBL4_DIR / "data" / "BCCD_Dataset-master" / "BCCD",
+        PROJECT_ROOT / "data" / "BCCD_Dataset-master" / "BCCD",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+BCCD_VOC_DIR = _find_bccd_root()
 BCCD_ANNOTATIONS_DIR = BCCD_VOC_DIR / "Annotations"
 BCCD_IMAGES_DIR = BCCD_VOC_DIR / "JPEGImages"
 
