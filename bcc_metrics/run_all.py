@@ -32,6 +32,19 @@ train it first with `python pbl-4/train_bccd_<model_key>_detection.py` (or
 these ONNX-based comparison scripts; see its own run_report for native
 evaluation numbers otherwise.)
 
+A model with a checkpoint but a failed/skipped ONNX export is now called
+out explicitly (not lumped in with "never trained") -- see the WARN line
+from list_available_models() in common.py, which reads that model's own
+run_report_<model_key>.json to tell the two situations apart.
+
+After every per-model step above has run, `model_comparison` reads the
+combined cross-model tables they wrote (table1_model_comparison_detection
+.csv, calibration_ece_all_models.csv, quantization_tradeoff.csv,
+edge_performance.csv, cv_protocol_*_summary.csv) and renders the actual
+side-by-side bar charts -- output/figures/model_comparison_*.png -- since
+previously only per-model-suffixed figures and combined *tables* existed,
+never a combined *chart*.
+
 Environment variables (see scripts/common.py and individual modules):
     BCC_PBL4_DIR              path to the unzipped pbl-4 repo (default: ../pbl-4)
     BCC_ANNOT_DIR              path to unzipped annotations/annotations (default: ../annotations/annotations)
@@ -88,6 +101,11 @@ STEPS = [
      "FP32 vs FP16 vs dynamic INT8: accuracy/latency/memory/CV% trade-off table."),
     ("edge_performance", "edge_performance.py", True,
      "Per-image inference latency + memory (+ power, if a meter command is configured)."),
+    ("model_comparison", "model_comparison_plots.py", False,
+     "Turns the combined cross-model tables written by the steps above (detection, calibration, "
+     "quantization, edge_performance, cv_repeatability) into actual side-by-side bar-chart PNGs "
+     "-- output/figures/model_comparison_*.png -- instead of leaving cross-model comparison as "
+     "CSV-only. Run after those steps so their combined tables already exist."),
     ("dataset_summary_final", "dataset_and_model_summary.py", False,
      "Re-run once detection/edge/quantization tables exist, to populate a measured Table I."),
 ]

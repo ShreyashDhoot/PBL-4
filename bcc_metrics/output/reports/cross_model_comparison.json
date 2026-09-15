@@ -1,0 +1,25 @@
+{
+  "models": [
+    "efficientnet",
+    "ssdlite"
+  ],
+  "sources": [
+    "edge"
+  ],
+  "n_normalized_rows": 10,
+  "tables": [
+    "cross_model_metrics_long.csv",
+    "cross_model_summary.csv"
+  ],
+  "figures": [
+    "cross_model_detection.png",
+    "cross_model_repeatability_calibration.png",
+    "cross_model_efficiency.png",
+    "cross_model_robustness.png"
+  ],
+  "notes": [
+    "Values retain the evaluator's original dataset, severity, cell type, and quantization labels.",
+    "Missing metrics are omitted rather than imputed; model availability is determined by common.MODEL_REGISTRY.",
+    "Quantization latency is measured on the evaluator's CPU device and should be re-run on Raspberry Pi 4 for paper claims."
+  ]
+}

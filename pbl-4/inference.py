@@ -125,8 +125,10 @@ def parse_args():
     )
     parser.add_argument(
         "--model",
-        default="output/ssdlite_bccd.onnx",
-        help="Path to ONNX model exported from training",
+        default="output/ssdlite/ssdlite_bccd.onnx",
+        help="Path to ONNX model exported from training (unified layout; pass "
+             "output/ssdlite_bccd.onnx if you trained with an older version of "
+             "train_bccd_ssdlite_detection.py that used the flat output/ dir)",
     )
     parser.add_argument(
         "--capture_dir",

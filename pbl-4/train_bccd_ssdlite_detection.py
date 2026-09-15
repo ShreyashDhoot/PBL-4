@@ -342,7 +342,10 @@ def save_charts(hist_df, class_df, split_df, out_dir):
 def main():
     parser = argparse.ArgumentParser(description='Train SSDLite MobileNetV3 on BCCD for blood cell detection')
     parser.add_argument('--data_root', default='data', help='where to download BCCD')
-    parser.add_argument('--out_dir', default='output', help='output directory for models and plots')
+    parser.add_argument('--out_dir', default='output/ssdlite',
+                         help='output directory for models and plots (unified per-model layout, '
+                              'matching every other train_bccd_*.py script -- was "output" (flat, '
+                              'no subfolder) in older versions of this script)')
     parser.add_argument('--epochs', type=int, default=8)
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--lr', type=float, default=2e-4)

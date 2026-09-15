@@ -70,7 +70,30 @@ BCCD_IMAGES_DIR = BCCD_VOC_DIR / "JPEGImages"
 SEVENTYTWO_IMAGES_DIR = ANNOT_DIR / "images"
 SEVENTYTWO_ANNOT_DIR = ANNOT_DIR / "annotations"
 
-SSDLITE_CKPT = PBL4_DIR / "output" / "ssdlite_bccd_best.pth"
+def _first_existing(*candidates):
+    """Returns the first candidate path that exists on disk, else the first
+    (preferred) candidate. Used so that renaming a model's default output
+    location doesn't break loading of a checkpoint that was already trained
+    under the old location."""
+    candidates = [Path(c) for c in candidates]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+
+# SSDLite (baseline) now trains into output/ssdlite/ like every other model
+# (unified layout). The bare "output/ssdlite_bccd_best.pth" path is kept as a
+# fallback ONLY so checkpoints trained before this change keep loading --
+# new training runs should use the new location.
+SSDLITE_CKPT = _first_existing(
+    PBL4_DIR / "output" / "ssdlite" / "ssdlite_bccd_best.pth",
+    PBL4_DIR / "output" / "ssdlite_bccd_best.pth",  # legacy flat location
+)
+SSDLITE_ONNX = _first_existing(
+    PBL4_DIR / "output" / "ssdlite" / "ssdlite_bccd.onnx",
+    PBL4_DIR / "output" / "ssdlite_bccd.onnx",  # legacy flat location
+)
 EFFICIENTNET_CKPT = PBL4_DIR / "output" / "efficientnet_bccd_best.pth"
 
 # ----------------------------------------------------------------------------
@@ -96,7 +119,7 @@ MODEL_REGISTRY = {
         "display_name": "SSDLite (baseline, MobileNetV3-Large, 320px)",
         "kind": "native_ssd",
         "native_ckpt": SSDLITE_CKPT,
-        "onnx": PBL4_DIR / "output" / "ssdlite_bccd.onnx",
+        "onnx": SSDLITE_ONNX,
     },
     "ssdlite_v2": {
         "display_name": "SSDLite v2 (small-object-optimized, 512px, focal loss)",
@@ -137,6 +160,39 @@ MODEL_REGISTRY = {
 }
 
 
+def _describe_why_unavailable(key, spec):
+    """Best-effort diagnosis of *why* a model isn't available yet, so a
+    trained-but-not-exported model doesn't look identical to a
+    never-trained one in the logs. Looks for that model's own
+    run_report_<key>.json (written by every train_bccd_*.py at the end of
+    training, regardless of whether ONNX export succeeded) to tell the two
+    situations apart."""
+    onnx_path = Path(spec["onnx"]) if spec.get("onnx") else None
+    report_path = (onnx_path.parent / f"run_report_{key}.json") if onnx_path else None
+
+    if report_path is not None and report_path.exists():
+        try:
+            import json as _json
+            report = _json.loads(report_path.read_text())
+            ckpt = (report.get("files") or {}).get("checkpoint") or (report.get("files") or {}).get("best_checkpoint")
+            if ckpt and not Path(ckpt).exists():
+                return (f"was trained (run_report_{key}.json exists) but its checkpoint "
+                        f"'{ckpt}' is missing from disk (moved/deleted, or an Ultralytics run "
+                        f"that wrote its weights to a different --project/--name than expected). "
+                        f"Re-run pbl-4/train_bccd_{key}_detection.py.")
+            return (f"was trained (checkpoint found, run_report_{key}.json exists) but its ONNX "
+                    f"export did not succeed (onnx export failures are non-fatal by design, so "
+                    f"training completes anyway -- check that run's console output / "
+                    f"run_report_{key}.json['files']['onnx'] for the export error). This suite "
+                    f"evaluates non-torchvision models exclusively through ONNX, so no ONNX file "
+                    f"means no graphs/tables for this model until export succeeds. Re-run "
+                    f"pbl-4/train_bccd_{key}_detection.py, or fix/retry just the export step.")
+        except Exception:
+            pass
+    return (f"has no trained checkpoint yet -- train it with "
+            f"pbl-4/train_bccd_{key}_detection.py (or pbl-4/train_all_models.py for every model).")
+
+
 def list_available_models():
     """Returns [(model_key, display_name), ...] for every model in
     MODEL_REGISTRY that actually has a usable checkpoint on disk right now
@@ -153,9 +209,8 @@ def list_available_models():
         if ready:
             available.append((key, spec["display_name"]))
         else:
-            log(f"Model '{key}' ({spec['display_name']}) has no trained checkpoint/onnx yet -- "
-                f"skipping. Train it with pbl-4/train_bccd_{key}_detection.py "
-                f"(or pbl-4/train_all_models.py for every model).", tag="WARN")
+            log(f"Model '{key}' ({spec['display_name']}) {_describe_why_unavailable(key, spec)}",
+                tag="WARN")
     return available
 
 FIGURES_DIR = OUTPUT_DIR / "figures"

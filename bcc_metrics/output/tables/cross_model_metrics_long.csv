@@ -1,0 +1,11 @@
+source,model,metric,value
+edge,ssdlite,mean_latency_ms,52.55115333226664
+edge,ssdlite,median_latency_ms,52.60364999412559
+edge,ssdlite,p95_latency_ms,60.71983499423368
+edge,ssdlite,std_latency_ms,4.784037619089065
+edge,ssdlite,peak_ram_mb,408.8828125
+edge,efficientnet,mean_latency_ms,31.448540000322584
+edge,efficientnet,median_latency_ms,31.89534999546595
+edge,efficientnet,p95_latency_ms,37.65174499712884
+edge,efficientnet,std_latency_ms,4.305075175454642
+edge,efficientnet,peak_ram_mb,440.35546875

@@ -70,8 +70,11 @@ def export_to_onnx(model: torch.nn.Module, onnx_path: Path, opset: int, image_si
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Convert SSDLite .pth weights to ONNX")
-    parser.add_argument("--pth", default="output/ssdlite_bccd_best.pth", help="Path to .pth weights")
-    parser.add_argument("--onnx", default="output/ssdlite_bccd.onnx", help="Output ONNX path")
+    parser.add_argument("--pth", default="output/ssdlite/ssdlite_bccd_best.pth",
+                         help="Path to .pth weights (unified layout; pass "
+                              "output/ssdlite_bccd_best.pth if you trained with an older version "
+                              "of train_bccd_ssdlite_detection.py that used the flat output/ dir)")
+    parser.add_argument("--onnx", default="output/ssdlite/ssdlite_bccd.onnx", help="Output ONNX path")
     parser.add_argument("--opset", type=int, default=12, help="ONNX opset version")
     parser.add_argument("--image_size", type=int, default=320, help="Square input size used for export")
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="Export device")

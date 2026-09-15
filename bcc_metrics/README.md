@@ -174,3 +174,14 @@ output/
   reports/   *.json / *.md — machine-readable summaries + a paper-ready
                               markdown version of the literature comparison table
 ```
+
+After the evaluation steps finish, `run_all.py` runs
+`cross_model_comparison.py`. It combines the detection, CV%, agreement,
+calibration, robustness, quantization, and edge-performance outputs for every
+available model into `tables/cross_model_metrics_long.csv` (lossless,
+paper-data format) and `tables/cross_model_summary.csv` (one row per model).
+The corresponding comparison figures are written to `figures/cross_model_*.png`
+and the source/coverage manifest is written to
+`reports/cross_model_comparison.json`. Missing or unavailable measurements are
+left missing rather than imputed, and target-hardware latency must still be
+collected with `BCC_ON_RASPBERRY_PI=1` before making Raspberry Pi claims.

@@ -234,7 +234,12 @@ def train_ultralytics_model(model_key, model_display_name, description, ultra_cl
 
     val_metrics = {}
     try:
-        val_results = model.val(data=str(data_yaml), split='val', imgsz=img_size)
+        # IMPORTANT: project/name must be passed explicitly here too, not just to
+        # .train() above -- otherwise Ultralytics writes val plots/confusion
+        # matrices to its own global runs/detect/val(-N)/ instead of this model's
+        # output/<model_key>/ folder, scattering results outside the unified layout.
+        val_results = model.val(data=str(data_yaml), split='val', imgsz=img_size,
+                                 project=str(out_dir), name='val', exist_ok=True)
         val_metrics = {
             'val_mAP50': float(val_results.box.map50),
             'val_mAP50-95': float(val_results.box.map),
@@ -246,7 +251,8 @@ def train_ultralytics_model(model_key, model_display_name, description, ultra_cl
 
     test_metrics = {}
     try:
-        test_results = model.val(data=str(data_yaml), split='test', imgsz=img_size)
+        test_results = model.val(data=str(data_yaml), split='test', imgsz=img_size,
+                                  project=str(out_dir), name='test', exist_ok=True)
         test_metrics = {
             'test_mAP50': float(test_results.box.map50),
             'test_mAP50-95': float(test_results.box.map),

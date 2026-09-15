@@ -85,7 +85,7 @@ class SSDLiteDetector:
             raise RuntimeError(
                 f"SSDLite checkpoint not found at {SSDLITE_CKPT}. "
                 "Run `python train_bccd_ssdlite_detection.py` first (from the pbl-4 repo) "
-                "to produce output/ssdlite_bccd_best.pth."
+                "to produce output/ssdlite/ssdlite_bccd_best.pth."
             )
         self.device = device
         self.quantize_mode = quantize_mode
